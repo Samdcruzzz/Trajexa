@@ -1,0 +1,2365 @@
+<!DOCTYPE html><html lang="en" class="h-full bg-slate-950 text-slate-100"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Traffic Ops — Multi-Camera ANPR Trajectory &amp; Urban Traffic Engine</title>
+  
+  <!-- Fonts & Tailwind CSS CDN -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Leaflet CSS & JS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    // Fallback: if jsdelivr is blocked on this network, try unpkg instead
+    if (typeof L === 'undefined') {
+      document.write('<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>');
+    }
+  </script>
+  
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            sih: {
+              orange: '#FF9933',
+              navy: '#0b1329',
+              green: '#138808',
+              cyan: '#00d2ff',
+              alert: '#ff3344',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* Custom scrollbars for control room aesthetics */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.6);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(51, 65, 85, 0.8);
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(100, 116, 139, 1);
+    }
+    
+    /* Pulse glow keyframes */
+    @keyframes subtle-pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(1.08); }
+    }
+    .status-pulse {
+      animation: subtle-pulse 2s infinite ease-in-out;
+    }
+
+    /* Leaflet dark theme tweaks */
+    .dark-map-tiles {
+      filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.95) saturate(0.6);
+    }
+    .leaflet-container {
+      background-color: #0b1120 !important;
+      font-family: 'Inter', sans-serif !important;
+    }
+    .leaflet-popup-content-wrapper {
+      background-color: #0f172a !important;
+      color: #f8fafc !important;
+      border: 1px solid #334155;
+      border-radius: 8px !important;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.7);
+    }
+    .leaflet-popup-tip {
+      background-color: #0f172a !important;
+    }
+    .custom-cam-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+  </style>
+</head>
+
+<body class="h-full flex overflow-hidden bg-[#070b14] text-slate-200 antialiased selection:bg-cyan-500 selection:text-white">
+
+  <!-- Toast Notification System -->
+  <div id="toast-container" class="fixed top-5 right-6 z-50 flex flex-col space-y-3 pointer-events-none w-96 max-w-full"></div>
+
+  <!-- Left Sidebar Navigation -->
+  <aside class="w-64 bg-slate-900/90 backdrop-blur border-r border-slate-800/80 flex flex-col flex-shrink-0 z-20 transition-all duration-300">
+    <!-- Brand Header -->
+    <div class="h-16 px-5 flex items-center gap-3 border-b border-slate-800 bg-slate-950/40">
+      <div class="relative w-9 h-9 rounded-lg bg-gradient-to-br from-cyan-500 via-blue-600 to-indigo-800 flex items-center justify-center shadow-lg shadow-cyan-500/20 border border-cyan-400/30">
+        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>
+        </svg>
+        <span class="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-orange-500"></span>
+        </span>
+      </div>
+      <div><div class="flex items-center gap-1.5"><span class="font-extrabold tracking-wider text-base text-white">Traffic Ops</span></div><p class="text-[10px] text-slate-400 tracking-tight">ANPR &amp; Trajectory Matrix</p></div>
+    </div>
+
+    <!-- Navigation Items -->
+    <nav class="flex-1 px-3 py-4 space-y-1.5 overflow-y-auto">
+      <div class="px-3 pb-1 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Control Modules</div>
+      
+      <button onclick="switchTab('overview')" id="nav-overview" class="tab-btn w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 shadow-sm shadow-cyan-950">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"></path>
+        </svg>
+        <span class="">Live Ops Room</span>
+        <span class="ml-auto text-[10px] bg-cyan-500/20 text-cyan-300 px-1.5 py-0.5 rounded font-mono">LIVE</span>
+      </button>
+
+      <button onclick="switchTab('trajectory')" id="nav-trajectory" class="tab-btn w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 text-slate-400 hover:text-slate-100 hover:bg-slate-800/60 border border-transparent">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+        </svg>
+        <span class="">Trajectory Search</span>
+        <span class="ml-auto text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-mono">GIS</span>
+      </button>
+
+      <button onclick="switchTab('analytics')" id="nav-analytics" class="tab-btn w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 text-slate-400 hover:text-slate-100 hover:bg-slate-800/60 border border-transparent">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+        </svg>
+        <span class="">Traffic Analytics</span>
+        <span class="ml-auto text-[10px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded font-mono">HEAT</span>
+      </button>
+
+      <button onclick="switchTab('alerts')" id="nav-alerts" class="tab-btn w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 text-slate-400 hover:text-slate-100 hover:bg-slate-800/60 border border-transparent">
+        <div class="relative">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
+          </svg>
+          <span id="nav-alert-badge-dot" class="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-rose-500"></span>
+        </div>
+        <span class="">Watchlist &amp; Alerts</span>
+        <span id="nav-alert-count" class="ml-auto text-[10px] bg-rose-500/20 text-rose-400 px-2 py-0.5 rounded-full font-mono font-bold">4 NEW</span>
+      </button>
+
+      <!-- System Architecture Guide Toggle -->
+      <div class="pt-4 px-3 pb-1 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Engineering Specs</div>
+      <button onclick="togglePipelineModal()" class="w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg text-xs font-medium text-slate-400 hover:text-cyan-300 hover:bg-slate-800/40 border border-dashed border-slate-800">
+        <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path>
+        </svg>
+        <span class="">5-Stage AI Pipeline</span>
+      </button>
+    </nav>
+
+    <!-- Sidebar Footer / Session Status -->
+    <div class="p-3 border-t border-slate-800 bg-slate-950/60">
+      <div class="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800/80">
+        <div class="flex items-center justify-between text-xs">
+          <span class="text-slate-400">Jurisdiction</span>
+          <span class="font-mono text-cyan-400 font-semibold">DELHI-NCR SEC-04</span>
+        </div>
+        <div class="flex items-center justify-between text-xs mt-1.5">
+          <span class="text-slate-400">OCR Precision</span>
+          <span class="font-mono text-emerald-400 font-semibold">96.4% avg</span>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main Content Layout Area -->
+  <div class="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+    <!-- Top System Command Header -->
+    <header class="h-16 border-b border-slate-800 bg-slate-950/90 backdrop-blur px-6 flex items-center justify-between z-10">
+      <div class="flex items-center gap-4">
+        <div>
+          <h1 class="text-sm font-semibold text-white tracking-wide flex items-center gap-2">
+            INTELLIGENT TRAFFIC CORRIDOR &amp; SURVEILLANCE ENGINE
+            
+          </h1>
+          <p class="text-xs text-slate-400">Edge OCR · Spatio-Temporal Trajectory Reconstruction · Corridor Optimization</p>
+        </div>
+      </div>
+
+      <!-- Live Clock & Status Badge -->
+      <div class="flex items-center gap-4">
+        <!-- Live Alert Banner (Simulated) -->
+        <div id="quick-alert-pill" class="md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-rose-500/10 border border-rose-500/30 text-xs text-rose-300">
+          <span class="w-2 h-2 rounded-full bg-rose-500 status-pulse"></span>
+          <span class="font-medium font-mono" id="quick-alert-text">CRITICAL ALERT: DL 01 AX 9942 AT CAM-119</span>
+        </div>
+
+        <div class="h-5 w-px bg-slate-800 hidden md:block"></div>
+
+        <!-- Live Clock -->
+        <div class="text-right">
+          <div id="live-clock" class="font-mono text-xs font-semibold text-cyan-300 tracking-wider">21:12:23 IST</div>
+          <div id="live-date" class="text-[10px] text-slate-400">17 Sept 2026</div>
+        </div>
+
+        <!-- Connection Indicator -->
+        <div class="flex items-center gap-2 bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800">
+          <div class="w-2.5 h-2.5 rounded-full bg-emerald-400 status-pulse shadow-sm shadow-emerald-400"></div>
+          <span class="text-xs font-medium text-emerald-400">ONLINE</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Views Container -->
+    <main class="flex-1 relative overflow-y-auto p-5 bg-[#070b14]">
+      
+      <!-- ======================================================== -->
+      <!-- TAB 1: OVERVIEW / LIVE OPS DASHBOARD                     -->
+      <!-- ======================================================== -->
+      <section id="view-overview" class="view-tab active flex flex-col gap-5">
+        <!-- Metric Cards Grid -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <!-- Stat 1 -->
+          <div class="relative overflow-hidden rounded-xl bg-slate-900/70 border border-slate-800 p-4 shadow-sm hover:border-slate-700 transition">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Active ANPR Nodes</span>
+              <div class="p-2 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+              </div>
+            </div>
+            <div class="mt-2 flex items-baseline gap-2">
+              <span class="text-2xl font-bold font-mono text-white">1,842</span>
+              <span class="text-xs text-emerald-400 font-medium">/ 1,880 online (98%)</span>
+            </div>
+            <div class="mt-3 flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-800/60">
+              <span class="">Coverage: 34 Corridors</span>
+              <span class="text-cyan-400 font-mono">Latency &lt;42ms</span>
+            </div>
+          </div>
+
+          <!-- Stat 2 -->
+          <div class="relative overflow-hidden rounded-xl bg-slate-900/70 border border-slate-800 p-4 shadow-sm hover:border-slate-700 transition">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Vehicles Logged Today</span>
+              <div class="p-2 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0"></path></svg>
+              </div>
+            </div>
+            <div class="mt-2 flex items-baseline gap-2">
+              <span id="stat-vehicles-count" class="text-2xl font-bold font-mono text-white">412,983</span>
+              <span class="text-xs text-emerald-400 font-medium">↑ +14.2% vs avg</span>
+            </div>
+            <div class="mt-3 flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-800/60">
+              <span class="">Unique Plates: <b class="text-slate-200 font-mono">194.2k</b></span>
+              <span class="text-slate-400">Reconstructed Trips: <b class="text-slate-200 font-mono">82k</b></span>
+            </div>
+          </div>
+
+          <!-- Stat 3 -->
+          <div class="relative overflow-hidden rounded-xl bg-slate-900/70 border border-slate-800 p-4 shadow-sm hover:border-slate-700 transition">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Active Watchlist Alerts</span>
+              <div class="p-2 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+              </div>
+            </div>
+            <div class="mt-2 flex items-baseline gap-2">
+              <span id="stat-alerts-count" class="text-2xl font-bold font-mono text-rose-400">4</span>
+              <span class="text-xs text-rose-400 font-medium">3 Immediate Action</span>
+            </div>
+            <div class="mt-3 flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-800/60">
+              <span class="">Stolen: 4 · Expired/Court: 3</span>
+              <span class="text-rose-400 underline cursor-pointer" onclick="switchTab('alerts')">View All</span>
+            </div>
+          </div>
+
+          <!-- Stat 4 -->
+          <div class="relative overflow-hidden rounded-xl bg-slate-900/70 border border-slate-800 p-4 shadow-sm hover:border-slate-700 transition">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">City Congestion Index</span>
+              <div class="p-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+              </div>
+            </div>
+            <div class="mt-2 flex items-baseline gap-2">
+              <span class="text-2xl font-bold font-mono text-amber-300">68.4%</span>
+              <span class="text-xs text-amber-400 font-medium">Moderate Heavy</span>
+            </div>
+            <div class="mt-3 flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-800/60">
+              <span class="">Avg Speed: <b class="text-slate-200 font-mono">23.6 km/h</b></span>
+              <span class="text-amber-400">Ring Rd Bottleneck</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Split View: Live Map & Streaming ANPR Ingestion Feed -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 min-h-[560px]">
+          <!-- Left: Leaflet Live Map (7 Cols) -->
+          <div class="lg:col-span-7 flex flex-col rounded-xl bg-slate-900/80 border border-slate-800 overflow-hidden shadow-lg">
+            <div class="px-4 py-3 border-b border-slate-800 bg-slate-950/60 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="inline-block w-2.5 h-2.5 rounded-full bg-cyan-400"></span>
+                <h3 class="text-xs font-semibold text-white uppercase tracking-wider">Metropolitan ANPR Node Topology</h3>
+              </div>
+              <div class="flex items-center gap-2 text-xs">
+                <span class="flex items-center gap-1 text-slate-400">
+                  <span class="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span> Normal
+                </span>
+                <span class="flex items-center gap-1 text-slate-400">
+                  <span class="w-2 h-2 rounded-full bg-amber-400 inline-block"></span> High Density
+                </span>
+                <span class="flex items-center gap-1 text-slate-400">
+                  <span class="w-2 h-2 rounded-full bg-rose-500 inline-block"></span> Alert Event
+                </span>
+                <button onclick="resetOverviewMap()" class="ml-2 px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] transition">Reset Zoom</button>
+              </div>
+            </div>
+            <!-- Leaflet Container -->
+            <div id="overview-map" class="w-full flex-1 min-h-[420px] z-0" tabindex="0" style="position: relative;"></div>
+            <!-- Footer Info -->
+            <div class="px-4 py-2 border-t border-slate-800 bg-slate-950/40 flex items-center justify-between text-[11px] text-slate-400">
+              <span class="">Displaying 12 primary sensory corridors &amp; junction clusters</span>
+              <span class="font-mono text-cyan-400">Auto-refresh: 3s tick</span>
+            </div>
+          </div>
+
+          <!-- Right: Streaming Plate Read Feed (5 Cols) -->
+          <div class="lg:col-span-5 flex flex-col rounded-xl bg-slate-900/80 border border-slate-800 overflow-hidden shadow-lg">
+            <div class="px-4 py-3 border-b border-slate-800 bg-slate-950/60 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <div class="w-2 h-2 rounded-full bg-emerald-400 status-pulse"></div>
+                <h3 class="text-xs font-semibold text-white uppercase tracking-wider">Live ANPR OCR Ingestion Stream</h3>
+              </div>
+              <div class="flex items-center gap-2">
+                <button onclick="pauseStreamToggle()" id="btn-stream-toggle" class="text-[11px] px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono">Pause Feed</button>
+                <span class="text-[11px] font-mono text-slate-400">FPS: 30</span>
+              </div>
+            </div>
+
+            <!-- Ingestion Stream Scrollable Box -->
+            <div id="live-anpr-feed" class="flex-1 p-3 overflow-y-auto space-y-2 max-h-[500px] text-xs"><div class="p-3 rounded-lg border transition-all duration-300 transform -translate-y-1 bg-slate-950/70 border-slate-800 hover:border-slate-700">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-xs font-extrabold px-2 py-0.5 rounded tracking-wider bg-slate-800 text-cyan-300 border border-slate-700">UP 04 ID 4661</span>
+            <span class="text-[10px] font-mono text-slate-400">Auto-Rickshaw</span>
+          </div>
+          <div class="flex items-center gap-1.5 font-mono text-[10px]">
+            <span class="text-slate-400">21:12:22</span>
+            <span class="px-1.5 py-0.2 rounded font-bold bg-emerald-500/20 text-emerald-400">96.4% conf</span>
+          </div>
+        </div>
+        <div class="mt-2 flex items-center justify-between text-[11px]">
+          <div class="text-slate-300 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+            <span class="font-semibold">CAM-088</span>
+            <span class="text-slate-500">·</span>
+            <span class="text-slate-400 truncate max-w-[180px]">AIIMS Flyover South Lane</span>
+          </div>
+          <button onclick="quickInvestigatePlate('UP 04 ID 4661')" class="text-[10px] text-cyan-400 hover:text-cyan-200 underline font-mono">Trace</button>
+        </div>
+      </div><div class="p-3 rounded-lg border transition-all duration-300 transform -translate-y-1 bg-slate-950/70 border-slate-800 hover:border-slate-700">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-xs font-extrabold px-2 py-0.5 rounded tracking-wider bg-slate-800 text-cyan-300 border border-slate-700">DL 11 YO 2963</span>
+            <span class="text-[10px] font-mono text-slate-400">Sedan</span>
+          </div>
+          <div class="flex items-center gap-1.5 font-mono text-[10px]">
+            <span class="text-slate-400">21:12:18</span>
+            <span class="px-1.5 py-0.2 rounded font-bold bg-amber-500/20 text-amber-400">93.2% conf</span>
+          </div>
+        </div>
+        <div class="mt-2 flex items-center justify-between text-[11px]">
+          <div class="text-slate-300 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+            <span class="font-semibold">CAM-067</span>
+            <span class="text-slate-500">·</span>
+            <span class="text-slate-400 truncate max-w-[180px]">Dhaula Kuan Interchange</span>
+          </div>
+          <button onclick="quickInvestigatePlate('DL 11 YO 2963')" class="text-[10px] text-cyan-400 hover:text-cyan-200 underline font-mono">Trace</button>
+        </div>
+      </div><div class="p-3 rounded-lg border transition-all duration-300 transform -translate-y-1 bg-slate-950/70 border-slate-800 hover:border-slate-700">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-xs font-extrabold px-2 py-0.5 rounded tracking-wider bg-slate-800 text-cyan-300 border border-slate-700">TN 09 HM 4394</span>
+            <span class="text-[10px] font-mono text-slate-400">Auto-Rickshaw</span>
+          </div>
+          <div class="flex items-center gap-1.5 font-mono text-[10px]">
+            <span class="text-slate-400">21:12:15</span>
+            <span class="px-1.5 py-0.2 rounded font-bold bg-amber-500/20 text-amber-400">92.1% conf</span>
+          </div>
+        </div>
+        <div class="mt-2 flex items-center justify-between text-[11px]">
+          <div class="text-slate-300 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+            <span class="font-semibold">CAM-067</span>
+            <span class="text-slate-500">·</span>
+            <span class="text-slate-400 truncate max-w-[180px]">Dhaula Kuan Interchange</span>
+          </div>
+          <button onclick="quickInvestigatePlate('TN 09 HM 4394')" class="text-[10px] text-cyan-400 hover:text-cyan-200 underline font-mono">Trace</button>
+        </div>
+      </div><div class="p-3 rounded-lg border transition-all duration-300 transform -translate-y-1 bg-slate-950/70 border-slate-800 hover:border-slate-700">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-xs font-extrabold px-2 py-0.5 rounded tracking-wider bg-slate-800 text-cyan-300 border border-slate-700">KA 04 JK 9974</span>
+            <span class="text-[10px] font-mono text-slate-400">Interstate Bus</span>
+          </div>
+          <div class="flex items-center gap-1.5 font-mono text-[10px]">
+            <span class="text-slate-400">21:12:12</span>
+            <span class="px-1.5 py-0.2 rounded font-bold bg-amber-500/20 text-amber-400">91.8% conf</span>
+          </div>
+        </div>
+        <div class="mt-2 flex items-center justify-between text-[11px]">
+          <div class="text-slate-300 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+            <span class="font-semibold">CAM-142</span>
+            <span class="text-slate-500">·</span>
+            <span class="text-slate-400 truncate max-w-[180px]">ISBT Kashmiri Gate Entry</span>
+          </div>
+          <button onclick="quickInvestigatePlate('KA 04 JK 9974')" class="text-[10px] text-cyan-400 hover:text-cyan-200 underline font-mono">Trace</button>
+        </div>
+      </div><div class="p-3 rounded-lg border transition-all duration-300 transform -translate-y-1 bg-slate-950/70 border-slate-800 hover:border-slate-700">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-xs font-extrabold px-2 py-0.5 rounded tracking-wider bg-slate-800 text-cyan-300 border border-slate-700">MH 15 LL 5232</span>
+            <span class="text-[10px] font-mono text-slate-400">Sedan</span>
+          </div>
+          <div class="flex items-center gap-1.5 font-mono text-[10px]">
+            <span class="text-slate-400">21:12:08</span>
+            <span class="px-1.5 py-0.2 rounded font-bold bg-amber-500/20 text-amber-400">93.5% conf</span>
+          </div>
+        </div>
+        <div class="mt-2 flex items-center justify-between text-[11px]">
+          <div class="text-slate-300 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+            <span class="font-semibold">CAM-142</span>
+            <span class="text-slate-500">·</span>
+            <span class="text-slate-400 truncate max-w-[180px]">ISBT Kashmiri Gate Entry</span>
+          </div>
+          <button onclick="quickInvestigatePlate('MH 15 LL 5232')" class="text-[10px] text-cyan-400 hover:text-cyan-200 underline font-mono">Trace</button>
+        </div>
+      </div><div class="p-3 rounded-lg border transition-all duration-300 transform -translate-y-1 bg-slate-950/70 border-slate-800 hover:border-slate-700">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-xs font-extrabold px-2 py-0.5 rounded tracking-wider bg-slate-800 text-cyan-300 border border-slate-700">MH 10 YX 5733</span>
+            <span class="text-[10px] font-mono text-slate-400">Sedan</span>
+          </div>
+          <div class="flex items-center gap-1.5 font-mono text-[10px]">
+            <span class="text-slate-400">21:12:05</span>
+            <span class="px-1.5 py-0.2 rounded font-bold bg-amber-500/20 text-amber-400">92.5% conf</span>
+          </div>
+        </div>
+        <div class="mt-2 flex items-center justify-between text-[11px]">
+          <div class="text-slate-300 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+            <span class="font-semibold">CAM-012</span>
+            <span class="text-slate-500">·</span>
+            <span class="text-slate-400 truncate max-w-[180px]">ITO Junction North Bound</span>
+          </div>
+          <button onclick="quickInvestigatePlate('MH 10 YX 5733')" class="text-[10px] text-cyan-400 hover:text-cyan-200 underline font-mono">Trace</button>
+        </div>
+      </div><div class="p-3 rounded-lg border transition-all duration-300 transform -translate-y-1 bg-slate-950/70 border-slate-800 hover:border-slate-700">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-xs font-extrabold px-2 py-0.5 rounded tracking-wider bg-slate-800 text-cyan-300 border border-slate-700">TN 01 WP 1477</span>
+            <span class="text-[10px] font-mono text-slate-400">Hatchback</span>
+          </div>
+          <div class="flex items-center gap-1.5 font-mono text-[10px]">
+            <span class="text-slate-400">21:12:01</span>
+            <span class="px-1.5 py-0.2 rounded font-bold bg-amber-500/20 text-amber-400">91.2% conf</span>
+          </div>
+        </div>
+        <div class="mt-2 flex items-center justify-between text-[11px]">
+          <div class="text-slate-300 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+            <span class="font-semibold">CAM-012</span>
+            <span class="text-slate-500">·</span>
+            <span class="text-slate-400 truncate max-w-[180px]">ITO Junction North Bound</span>
+          </div>
+          <button onclick="quickInvestigatePlate('TN 01 WP 1477')" class="text-[10px] text-cyan-400 hover:text-cyan-200 underline font-mono">Trace</button>
+        </div>
+      </div><div class="p-3 rounded-lg border transition-all duration-300 transform -translate-y-1 bg-slate-950/70 border-slate-800 hover:border-slate-700">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-xs font-extrabold px-2 py-0.5 rounded tracking-wider bg-slate-800 text-cyan-300 border border-slate-700">KA 05 LG 5963</span>
+            <span class="text-[10px] font-mono text-slate-400">SUV</span>
+          </div>
+          <div class="flex items-center gap-1.5 font-mono text-[10px]">
+            <span class="text-slate-400">21:11:58</span>
+            <span class="px-1.5 py-0.2 rounded font-bold bg-emerald-500/20 text-emerald-400">99.0% conf</span>
+          </div>
+        </div>
+        <div class="mt-2 flex items-center justify-between text-[11px]">
+          <div class="text-slate-300 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+            <span class="font-semibold">CAM-088</span>
+            <span class="text-slate-500">·</span>
+            <span class="text-slate-400 truncate max-w-[180px]">AIIMS Flyover South Lane</span>
+          </div>
+          <button onclick="quickInvestigatePlate('KA 05 LG 5963')" class="text-[10px] text-cyan-400 hover:text-cyan-200 underline font-mono">Trace</button>
+        </div>
+      </div><div class="p-3 rounded-lg border transition-all duration-300 transform -translate-y-1 bg-slate-950/70 border-slate-800 hover:border-slate-700">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-xs font-extrabold px-2 py-0.5 rounded tracking-wider bg-slate-800 text-cyan-300 border border-slate-700">MH 09 PC 3187</span>
+            <span class="text-[10px] font-mono text-slate-400">Sedan</span>
+          </div>
+          <div class="flex items-center gap-1.5 font-mono text-[10px]">
+            <span class="text-slate-400">21:11:55</span>
+            <span class="px-1.5 py-0.2 rounded font-bold bg-emerald-500/20 text-emerald-400">99.5% conf</span>
+          </div>
+        </div>
+        <div class="mt-2 flex items-center justify-between text-[11px]">
+          <div class="text-slate-300 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+            <span class="font-semibold">CAM-088</span>
+            <span class="text-slate-500">·</span>
+            <span class="text-slate-400 truncate max-w-[180px]">AIIMS Flyover South Lane</span>
+          </div>
+          <button onclick="quickInvestigatePlate('MH 09 PC 3187')" class="text-[10px] text-cyan-400 hover:text-cyan-200 underline font-mono">Trace</button>
+        </div>
+      </div><div class="p-3 rounded-lg border transition-all duration-300 transform -translate-y-1 bg-slate-950/70 border-slate-800 hover:border-slate-700">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-xs font-extrabold px-2 py-0.5 rounded tracking-wider bg-slate-800 text-cyan-300 border border-slate-700">UP 02 GD 5029</span>
+            <span class="text-[10px] font-mono text-slate-400">Commercial Truck</span>
+          </div>
+          <div class="flex items-center gap-1.5 font-mono text-[10px]">
+            <span class="text-slate-400">21:11:51</span>
+            <span class="px-1.5 py-0.2 rounded font-bold bg-amber-500/20 text-amber-400">93.4% conf</span>
+          </div>
+        </div>
+        <div class="mt-2 flex items-center justify-between text-[11px]">
+          <div class="text-slate-300 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+            <span class="font-semibold">CAM-203</span>
+            <span class="text-slate-500">·</span>
+            <span class="text-slate-400 truncate max-w-[180px]">Delhi Airport Terminal 3 Approach</span>
+          </div>
+          <button onclick="quickInvestigatePlate('UP 02 GD 5029')" class="text-[10px] text-cyan-400 hover:text-cyan-200 underline font-mono">Trace</button>
+        </div>
+      </div><div class="p-3 rounded-lg border transition-all duration-300 transform -translate-y-1 bg-slate-950/70 border-slate-800 hover:border-slate-700">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-xs font-extrabold px-2 py-0.5 rounded tracking-wider bg-slate-800 text-cyan-300 border border-slate-700">MH 10 GB 3009</span>
+            <span class="text-[10px] font-mono text-slate-400">SUV</span>
+          </div>
+          <div class="flex items-center gap-1.5 font-mono text-[10px]">
+            <span class="text-slate-400">21:11:48</span>
+            <span class="px-1.5 py-0.2 rounded font-bold bg-amber-500/20 text-amber-400">92.2% conf</span>
+          </div>
+        </div>
+        <div class="mt-2 flex items-center justify-between text-[11px]">
+          <div class="text-slate-300 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+            <span class="font-semibold">CAM-203</span>
+            <span class="text-slate-500">·</span>
+            <span class="text-slate-400 truncate max-w-[180px]">Delhi Airport Terminal 3 Approach</span>
+          </div>
+          <button onclick="quickInvestigatePlate('MH 10 GB 3009')" class="text-[10px] text-cyan-400 hover:text-cyan-200 underline font-mono">Trace</button>
+        </div>
+      </div><div class="p-3 rounded-lg border transition-all duration-300 transform -translate-y-1 bg-slate-950/70 border-slate-800 hover:border-slate-700">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-xs font-extrabold px-2 py-0.5 rounded tracking-wider bg-slate-800 text-cyan-300 border border-slate-700">MH 02 KF 7175</span>
+            <span class="text-[10px] font-mono text-slate-400">Sedan</span>
+          </div>
+          <div class="flex items-center gap-1.5 font-mono text-[10px]">
+            <span class="text-slate-400">21:11:44</span>
+            <span class="px-1.5 py-0.2 rounded font-bold bg-amber-500/20 text-amber-400">93.0% conf</span>
+          </div>
+        </div>
+        <div class="mt-2 flex items-center justify-between text-[11px]">
+          <div class="text-slate-300 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+            <span class="font-semibold">CAM-119</span>
+            <span class="text-slate-500">·</span>
+            <span class="text-slate-400 truncate max-w-[180px]">NH-48 Cyber City Toll Plaza</span>
+          </div>
+          <button onclick="quickInvestigatePlate('MH 02 KF 7175')" class="text-[10px] text-cyan-400 hover:text-cyan-200 underline font-mono">Trace</button>
+        </div>
+      </div><div class="p-3 rounded-lg border transition-all duration-300 transform -translate-y-1 bg-slate-950/70 border-slate-800 hover:border-slate-700">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-xs font-extrabold px-2 py-0.5 rounded tracking-wider bg-slate-800 text-cyan-300 border border-slate-700">UP 11 KM 7385</span>
+            <span class="text-[10px] font-mono text-slate-400">Commercial Truck</span>
+          </div>
+          <div class="flex items-center gap-1.5 font-mono text-[10px]">
+            <span class="text-slate-400">21:11:41</span>
+            <span class="px-1.5 py-0.2 rounded font-bold bg-amber-500/20 text-amber-400">92.5% conf</span>
+          </div>
+        </div>
+        <div class="mt-2 flex items-center justify-between text-[11px]">
+          <div class="text-slate-300 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+            <span class="font-semibold">CAM-224</span>
+            <span class="text-slate-500">·</span>
+            <span class="text-slate-400 truncate max-w-[180px]">Noida Link Road Chilla Border</span>
+          </div>
+          <button onclick="quickInvestigatePlate('UP 11 KM 7385')" class="text-[10px] text-cyan-400 hover:text-cyan-200 underline font-mono">Trace</button>
+        </div>
+      </div><div class="p-3 rounded-lg border transition-all duration-300 transform -translate-y-1 bg-slate-950/70 border-slate-800 hover:border-slate-700">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-xs font-extrabold px-2 py-0.5 rounded tracking-wider bg-slate-800 text-cyan-300 border border-slate-700">DL 04 KA 3931</span>
+            <span class="text-[10px] font-mono text-slate-400">Auto-Rickshaw</span>
+          </div>
+          <div class="flex items-center gap-1.5 font-mono text-[10px]">
+            <span class="text-slate-400">21:11:38</span>
+            <span class="px-1.5 py-0.2 rounded font-bold bg-emerald-500/20 text-emerald-400">97.9% conf</span>
+          </div>
+        </div>
+        <div class="mt-2 flex items-center justify-between text-[11px]">
+          <div class="text-slate-300 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+            <span class="font-semibold">CAM-119</span>
+            <span class="text-slate-500">·</span>
+            <span class="text-slate-400 truncate max-w-[180px]">NH-48 Cyber City Toll Plaza</span>
+          </div>
+          <button onclick="quickInvestigatePlate('DL 04 KA 3931')" class="text-[10px] text-cyan-400 hover:text-cyan-200 underline font-mono">Trace</button>
+        </div>
+      </div><div class="p-3 rounded-lg border transition-all duration-300 transform -translate-y-1 bg-rose-950/40 border-rose-500/60 shadow-lg shadow-rose-950/40 animate-pulse">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-xs font-extrabold px-2 py-0.5 rounded tracking-wider bg-rose-600 text-white">DL 01 AX 9942</span>
+            <span class="text-[10px] font-mono text-slate-400">Auto-Rickshaw</span>
+          </div>
+          <div class="flex items-center gap-1.5 font-mono text-[10px]">
+            <span class="text-slate-400">21:11:34</span>
+            <span class="px-1.5 py-0.2 rounded font-bold bg-amber-500/20 text-amber-400">92.4% conf</span>
+          </div>
+        </div>
+        <div class="mt-2 flex items-center justify-between text-[11px]">
+          <div class="text-slate-300 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+            <span class="font-semibold">CAM-042</span>
+            <span class="text-slate-500">·</span>
+            <span class="text-slate-400 truncate max-w-[180px]">Barapullah Corridor West Ramp</span>
+          </div>
+          <button onclick="quickInvestigatePlate('DL 01 AX 9942')" class="text-[10px] text-cyan-400 hover:text-cyan-200 underline font-mono">Trace</button>
+        </div>
+      </div><div class="p-3 rounded-lg border transition-all duration-300 transform -translate-y-1 bg-slate-950/70 border-slate-800 hover:border-slate-700">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-xs font-extrabold px-2 py-0.5 rounded tracking-wider bg-slate-800 text-cyan-300 border border-slate-700">PB 07 DU 1128</span>
+            <span class="text-[10px] font-mono text-slate-400">Auto-Rickshaw</span>
+          </div>
+          <div class="flex items-center gap-1.5 font-mono text-[10px]">
+            <span class="text-slate-400">21:11:31</span>
+            <span class="px-1.5 py-0.2 rounded font-bold bg-amber-500/20 text-amber-400">94.5% conf</span>
+          </div>
+        </div>
+        <div class="mt-2 flex items-center justify-between text-[11px]">
+          <div class="text-slate-300 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+            <span class="font-semibold">CAM-181</span>
+            <span class="text-slate-500">·</span>
+            <span class="text-slate-400 truncate max-w-[180px]">Karol Bagh Pusa Road Entry</span>
+          </div>
+          <button onclick="quickInvestigatePlate('PB 07 DU 1128')" class="text-[10px] text-cyan-400 hover:text-cyan-200 underline font-mono">Trace</button>
+        </div>
+      </div><div class="p-3 rounded-lg border transition-all duration-300 transform -translate-y-1 bg-slate-950/70 border-slate-800 hover:border-slate-700">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-xs font-extrabold px-2 py-0.5 rounded tracking-wider bg-slate-800 text-cyan-300 border border-slate-700">UP 18 JR 9597</span>
+            <span class="text-[10px] font-mono text-slate-400">Hatchback</span>
+          </div>
+          <div class="flex items-center gap-1.5 font-mono text-[10px]">
+            <span class="text-slate-400">21:11:27</span>
+            <span class="px-1.5 py-0.2 rounded font-bold bg-amber-500/20 text-amber-400">93.7% conf</span>
+          </div>
+        </div>
+        <div class="mt-2 flex items-center justify-between text-[11px]">
+          <div class="text-slate-300 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+            <span class="font-semibold">CAM-142</span>
+            <span class="text-slate-500">·</span>
+            <span class="text-slate-400 truncate max-w-[180px]">ISBT Kashmiri Gate Entry</span>
+          </div>
+          <button onclick="quickInvestigatePlate('UP 18 JR 9597')" class="text-[10px] text-cyan-400 hover:text-cyan-200 underline font-mono">Trace</button>
+        </div>
+      </div><div class="p-3 rounded-lg border transition-all duration-300 transform -translate-y-1 bg-slate-950/70 border-slate-800 hover:border-slate-700">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-xs font-extrabold px-2 py-0.5 rounded tracking-wider bg-slate-800 text-cyan-300 border border-slate-700">UP 19 WU 1334</span>
+            <span class="text-[10px] font-mono text-slate-400">Auto-Rickshaw</span>
+          </div>
+          <div class="flex items-center gap-1.5 font-mono text-[10px]">
+            <span class="text-slate-400">21:11:24</span>
+            <span class="px-1.5 py-0.2 rounded font-bold bg-emerald-500/20 text-emerald-400">97.5% conf</span>
+          </div>
+        </div>
+        <div class="mt-2 flex items-center justify-between text-[11px]">
+          <div class="text-slate-300 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+            <span class="font-semibold">CAM-203</span>
+            <span class="text-slate-500">·</span>
+            <span class="text-slate-400 truncate max-w-[180px]">Delhi Airport Terminal 3 Approach</span>
+          </div>
+          <button onclick="quickInvestigatePlate('UP 19 WU 1334')" class="text-[10px] text-cyan-400 hover:text-cyan-200 underline font-mono">Trace</button>
+        </div>
+      </div><div class="p-3 rounded-lg border transition-all duration-300 transform -translate-y-1 bg-slate-950/70 border-slate-800 hover:border-slate-700">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-xs font-extrabold px-2 py-0.5 rounded tracking-wider bg-slate-800 text-cyan-300 border border-slate-700">PB 17 JH 3283</span>
+            <span class="text-[10px] font-mono text-slate-400">Commercial Truck</span>
+          </div>
+          <div class="flex items-center gap-1.5 font-mono text-[10px]">
+            <span class="text-slate-400">21:11:21</span>
+            <span class="px-1.5 py-0.2 rounded font-bold bg-emerald-500/20 text-emerald-400">99.1% conf</span>
+          </div>
+        </div>
+        <div class="mt-2 flex items-center justify-between text-[11px]">
+          <div class="text-slate-300 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+            <span class="font-semibold">CAM-012</span>
+            <span class="text-slate-500">·</span>
+            <span class="text-slate-400 truncate max-w-[180px]">ITO Junction North Bound</span>
+          </div>
+          <button onclick="quickInvestigatePlate('PB 17 JH 3283')" class="text-[10px] text-cyan-400 hover:text-cyan-200 underline font-mono">Trace</button>
+        </div>
+      </div><div class="p-3 rounded-lg border transition-all duration-300 transform -translate-y-1 bg-slate-950/70 border-slate-800 hover:border-slate-700">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-xs font-extrabold px-2 py-0.5 rounded tracking-wider bg-slate-800 text-cyan-300 border border-slate-700">KA 09 FC 7623</span>
+            <span class="text-[10px] font-mono text-slate-400">Auto-Rickshaw</span>
+          </div>
+          <div class="flex items-center gap-1.5 font-mono text-[10px]">
+            <span class="text-slate-400">21:11:17</span>
+            <span class="px-1.5 py-0.2 rounded font-bold bg-amber-500/20 text-amber-400">91.9% conf</span>
+          </div>
+        </div>
+        <div class="mt-2 flex items-center justify-between text-[11px]">
+          <div class="text-slate-300 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+            <span class="font-semibold">CAM-155</span>
+            <span class="text-slate-500">·</span>
+            <span class="text-slate-400 truncate max-w-[180px]">Akshardham Setu East Bound</span>
+          </div>
+          <button onclick="quickInvestigatePlate('KA 09 FC 7623')" class="text-[10px] text-cyan-400 hover:text-cyan-200 underline font-mono">Trace</button>
+        </div>
+      </div></div>
+
+            <!-- Feed Footer Status -->
+            <div class="px-4 py-2.5 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between text-xs text-slate-400">
+              <span class="flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                Stitching rate: 840 plates/sec
+              </span>
+              <span class="font-mono text-slate-500">Buffer: OK (0.02% drop)</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================================================== -->
+      <!-- TAB 2: TRAJECTORY SEARCH (INVESTIGATOR CONSOLE)           -->
+      <!-- ======================================================== -->
+      <section id="view-trajectory" class="view-tab flex flex-col gap-5 hidden">
+        <!-- Search Controls Card -->
+        <div class="rounded-xl bg-slate-900/80 border border-slate-800 p-5 shadow-lg">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h2 class="text-base font-bold text-white flex items-center gap-2">
+                <span class="p-1 rounded bg-cyan-500/20 text-cyan-400">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                </span>
+                Multi-Camera Vehicle Trajectory Reconstructor
+              </h2>
+              <p class="text-xs text-slate-400 mt-0.5">Stitch isolated camera OCR captures into spatio-temporal GIS paths</p>
+            </div>
+            <!-- Quick Preset Plate Chips -->
+            <div class="hidden sm:flex items-center gap-2">
+              <span class="text-xs text-slate-400">Quick Samples:</span>
+              <button onclick="loadSamplePlate('DL 01 AX 9942')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs font-mono text-cyan-300 border border-slate-700">DL 01 AX 9942 (Wanted)</button>
+              <button onclick="loadSamplePlate('MH 12 QP 4410')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs font-mono text-emerald-300 border border-slate-700">MH 12 QP 4410 (Commuter)</button>
+              <button onclick="loadSamplePlate('KA 05 MN 2189')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs font-mono text-amber-300 border border-slate-700">KA 05 MN 2189 (Corridor)</button>
+            </div>
+          </div>
+
+          <form onsubmit="handleTrajectorySearch(event)" class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+            <!-- Plate Input -->
+            <div class="md:col-span-4">
+              <label class="block text-xs font-medium text-slate-300 mb-1.5 uppercase tracking-wider">Registration Number</label>
+              <div class="relative">
+                <input type="text" id="traj-plate-input" value="DL 01 AX 9942" placeholder="e.g. DL 01 AX 9942" required="" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3.5 py-2.5 font-mono text-sm uppercase text-white font-semibold tracking-wider focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400">
+                <span class="absolute right-3 top-2.5 text-slate-500 font-mono text-xs">IND</span>
+              </div>
+            </div>
+
+            <!-- Date/Time Range Filter -->
+            <div class="md:col-span-3">
+              <label class="block text-xs font-medium text-slate-300 mb-1.5 uppercase tracking-wider">Time Window</label>
+              <select id="traj-time-window" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-400">
+                <option value="today">Today (Past 12 Hours)</option>
+                <option value="24h">Past 24 Hours</option>
+                <option value="custom">Peak Morning Rush (08:00 - 11:30)</option>
+              </select>
+            </div>
+
+            <!-- Direction Filter -->
+            <div class="md:col-span-3">
+              <label class="block text-xs font-medium text-slate-300 mb-1.5 uppercase tracking-wider">Corridor / Zone</label>
+              <select id="traj-zone-filter" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-400">
+                <option value="all">All Delhi-NCR Sectors</option>
+                <option value="ring">Outer &amp; Inner Ring Road</option>
+                <option value="nh8">NH-48 / Cyber City Express</option>
+              </select>
+            </div>
+
+            <!-- Submit Button -->
+            <div class="md:col-span-2">
+              <button type="submit" class="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-semibold py-2.5 px-4 rounded-lg text-xs tracking-wider uppercase transition shadow-lg shadow-cyan-900/40">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                Track Vehicle
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Trajectory Results Workspace -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          <!-- Route Map & Computed Stats (7 Cols) -->
+          <div class="lg:col-span-7 flex flex-col gap-4">
+            <!-- Trajectory GIS Map -->
+            <div class="rounded-xl bg-slate-900/80 border border-slate-800 overflow-hidden shadow-lg flex flex-col">
+              <div class="px-4 py-3 border-b border-slate-800 bg-slate-950/60 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="w-2.5 h-2.5 rounded-full bg-cyan-400"></span>
+                  <span class="text-xs font-semibold text-white uppercase tracking-wider">Sequential Multi-Camera Plotted Route</span>
+                </div>
+                <div id="traj-map-tag" class="text-xs font-mono text-cyan-300 bg-cyan-950/60 px-2.5 py-0.5 rounded border border-cyan-800">Target: DL 01 AX 9942</div>
+              </div>
+              <div id="trajectory-map" class="w-full h-[400px] z-0" tabindex="0" style="position: relative;"></div>
+            </div>
+
+            <!-- Computed Inter-Camera Telemetry Stats -->
+            <div class="grid grid-cols-3 gap-3">
+              <div class="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 text-center">
+                <div class="text-[11px] text-slate-400 uppercase tracking-wider">Total Corridor Distance</div>
+                <div id="traj-stat-dist" class="text-xl font-bold font-mono text-white mt-1">16.8 km</div>
+                <div class="text-[10px] text-slate-500 mt-0.5">Across 5 Junction Cameras</div>
+              </div>
+              <div class="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 text-center">
+                <div class="text-[11px] text-slate-400 uppercase tracking-wider">Reconstructed Duration</div>
+                <div id="traj-stat-duration" class="text-xl font-bold font-mono text-cyan-400 mt-1">38 mins</div>
+                <div class="text-[10px] text-slate-500 mt-0.5">Start: 08:14 → End: 08:52</div>
+              </div>
+              <div class="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 text-center">
+                <div class="text-[11px] text-slate-400 uppercase tracking-wider">Average Travel Speed</div>
+                <div id="traj-stat-speed" class="text-xl font-bold font-mono text-amber-300 mt-1">26.5 km/h</div>
+                <div class="text-[10px] text-slate-500 mt-0.5">Matches corridor flow profile</div>
+              </div>
+            </div>
+            <!-- AI Investigator Brief (Gemini via backend) -->
+            <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-semibold text-white uppercase tracking-wider">AI Investigator Brief</span>
+                <button onclick="generateAiBrief()" id="btn-ai-brief" class="text-[11px] px-2.5 py-1 rounded bg-cyan-900/40 hover:bg-cyan-800/50 text-cyan-300 border border-cyan-700/40">Generate with Gemini</button>
+              </div>
+              <p id="ai-brief-output" class="mt-2 text-xs text-slate-300 leading-relaxed whitespace-pre-line"></p>
+            </div>
+
+          </div>
+
+          <!-- Chronological Sighting Timeline (5 Cols) -->
+          <div class="lg:col-span-5 rounded-xl bg-slate-900/80 border border-slate-800 flex flex-col shadow-lg overflow-hidden">
+            <div class="px-4 py-3 border-b border-slate-800 bg-slate-950/60 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <h3 class="text-xs font-semibold text-white uppercase tracking-wider">Chronological Sighting Chain</h3>
+              </div>
+              <span id="traj-node-count" class="text-xs font-mono text-cyan-400 bg-cyan-900/30 px-2 py-0.5 rounded border border-cyan-700/40">5 Nodes Matched</span>
+            </div>
+
+            <!-- Timeline Nodes Container -->
+            <div id="traj-timeline-list" class="flex-1 p-4 overflow-y-auto space-y-4 max-h-[500px]"><div class="relative pl-6 pb-2 border-l-2 border-slate-700 last:border-transparent">
+          <!-- Timeline Indicator Node -->
+          <div class="absolute -left-[9px] top-0 w-4 h-4 rounded-full flex items-center justify-center font-mono text-[9px] font-bold text-black bg-emerald-400">1</div>
+
+          <div class="p-3 rounded-lg bg-slate-950/70 border border-slate-800 hover:border-slate-700 transition">
+            <div class="flex items-center justify-between">
+              <div class="font-mono text-xs font-bold text-cyan-300 flex items-center gap-1.5">
+                <span class="">CAM-029</span>
+                <span class="text-[10px] text-slate-500">·</span>
+                <span class="text-slate-200">Connaught Place Outer Circle</span>
+              </div>
+              <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">Origin</span>
+            </div>
+
+            <div class="mt-2 grid grid-cols-3 gap-1 text-[11px] font-mono pt-1.5 border-t border-slate-800/80 text-slate-400">
+              <div class="">Time: <span class="text-slate-200">08:14:12</span></div>
+              <div class="">Vector: <span class="text-slate-200">Southbound</span></div>
+              <div class="text-right">OCR: <span class="text-emerald-400">98.2%</span></div>
+            </div>
+          </div>
+        </div><div class="relative pl-6 pb-2 border-l-2 border-slate-700 last:border-transparent">
+          <!-- Timeline Indicator Node -->
+          <div class="absolute -left-[9px] top-0 w-4 h-4 rounded-full flex items-center justify-center font-mono text-[9px] font-bold text-black bg-cyan-400">2</div>
+
+          <div class="p-3 rounded-lg bg-slate-950/70 border border-slate-800 hover:border-slate-700 transition">
+            <div class="flex items-center justify-between">
+              <div class="font-mono text-xs font-bold text-cyan-300 flex items-center gap-1.5">
+                <span class="">CAM-012</span>
+                <span class="text-[10px] text-slate-500">·</span>
+                <span class="text-slate-200">ITO Junction North Bound</span>
+              </div>
+              <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">+9m 33s</span>
+            </div>
+
+            <div class="mt-2 grid grid-cols-3 gap-1 text-[11px] font-mono pt-1.5 border-t border-slate-800/80 text-slate-400">
+              <div class="">Time: <span class="text-slate-200">08:23:45</span></div>
+              <div class="">Vector: <span class="text-slate-200">East-South Ramp</span></div>
+              <div class="text-right">OCR: <span class="text-emerald-400">96.8%</span></div>
+            </div>
+          </div>
+        </div><div class="relative pl-6 pb-2 border-l-2 border-slate-700 last:border-transparent">
+          <!-- Timeline Indicator Node -->
+          <div class="absolute -left-[9px] top-0 w-4 h-4 rounded-full flex items-center justify-center font-mono text-[9px] font-bold text-black bg-cyan-400">3</div>
+
+          <div class="p-3 rounded-lg bg-slate-950/70 border border-slate-800 hover:border-slate-700 transition">
+            <div class="flex items-center justify-between">
+              <div class="font-mono text-xs font-bold text-cyan-300 flex items-center gap-1.5">
+                <span class="">CAM-042</span>
+                <span class="text-[10px] text-slate-500">·</span>
+                <span class="text-slate-200">Barapullah Corridor West Ramp</span>
+              </div>
+              <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">+11m 25s</span>
+            </div>
+
+            <div class="mt-2 grid grid-cols-3 gap-1 text-[11px] font-mono pt-1.5 border-t border-slate-800/80 text-slate-400">
+              <div class="">Time: <span class="text-slate-200">08:35:10</span></div>
+              <div class="">Vector: <span class="text-slate-200">Elevated South</span></div>
+              <div class="text-right">OCR: <span class="text-emerald-400">97.4%</span></div>
+            </div>
+          </div>
+        </div><div class="relative pl-6 pb-2 border-l-2 border-slate-700 last:border-transparent">
+          <!-- Timeline Indicator Node -->
+          <div class="absolute -left-[9px] top-0 w-4 h-4 rounded-full flex items-center justify-center font-mono text-[9px] font-bold text-black bg-cyan-400">4</div>
+
+          <div class="p-3 rounded-lg bg-slate-950/70 border border-slate-800 hover:border-slate-700 transition">
+            <div class="flex items-center justify-between">
+              <div class="font-mono text-xs font-bold text-cyan-300 flex items-center gap-1.5">
+                <span class="">CAM-088</span>
+                <span class="text-[10px] text-slate-500">·</span>
+                <span class="text-slate-200">AIIMS Flyover South Lane</span>
+              </div>
+              <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">+8m 52s</span>
+            </div>
+
+            <div class="mt-2 grid grid-cols-3 gap-1 text-[11px] font-mono pt-1.5 border-t border-slate-800/80 text-slate-400">
+              <div class="">Time: <span class="text-slate-200">08:44:02</span></div>
+              <div class="">Vector: <span class="text-slate-200">Ring Road West</span></div>
+              <div class="text-right">OCR: <span class="text-emerald-400">94.1%</span></div>
+            </div>
+          </div>
+        </div><div class="relative pl-6 pb-2 border-l-2 border-slate-700 last:border-transparent">
+          <!-- Timeline Indicator Node -->
+          <div class="absolute -left-[9px] top-0 w-4 h-4 rounded-full flex items-center justify-center font-mono text-[9px] font-bold text-black bg-rose-500 text-white">5</div>
+
+          <div class="p-3 rounded-lg bg-slate-950/70 border border-slate-800 hover:border-slate-700 transition">
+            <div class="flex items-center justify-between">
+              <div class="font-mono text-xs font-bold text-cyan-300 flex items-center gap-1.5">
+                <span class="">CAM-067</span>
+                <span class="text-[10px] text-slate-500">·</span>
+                <span class="text-slate-200">Dhaula Kuan Interchange</span>
+              </div>
+              <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">+8m 17s</span>
+            </div>
+
+            <div class="mt-2 grid grid-cols-3 gap-1 text-[11px] font-mono pt-1.5 border-t border-slate-800/80 text-slate-400">
+              <div class="">Time: <span class="text-slate-200">08:52:19</span></div>
+              <div class="">Vector: <span class="text-slate-200">NH-48 Outflow</span></div>
+              <div class="text-right">OCR: <span class="text-emerald-400">95.9%</span></div>
+            </div>
+          </div>
+        </div></div>
+
+            <!-- Export / Investigation Dispatch -->
+            <div class="p-3 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between">
+              <button onclick="simulateDispatchUnit()" class="text-xs bg-rose-600 hover:bg-rose-500 text-white font-semibold px-3 py-1.5 rounded transition flex items-center gap-1.5 shadow-sm shadow-rose-900/50">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                Dispatch Patrol Intercept
+              </button>
+              <button onclick="alert('Trajectory dossier downloaded as cryptographically signed PDF.')" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium px-3 py-1.5 rounded transition border border-slate-700">
+                Export Dossier
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================================================== -->
+      <!-- TAB 3: TRAFFIC ANALYTICS                                 -->
+      <!-- ======================================================== -->
+      <section id="view-analytics" class="view-tab flex flex-col gap-5 hidden">
+        <!-- Analytics Header Overview -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="rounded-xl bg-slate-900/80 border border-slate-800 p-4">
+            <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Peak Hour Bottleneck</span>
+            <div class="text-lg font-bold text-white mt-1">Dhaula Kuan → AIIMS Flyover</div>
+            <div class="text-xs text-rose-400 mt-0.5">Avg speed dropped to 11.2 km/h (Index: 89%)</div>
+          </div>
+          <div class="rounded-xl bg-slate-900/80 border border-slate-800 p-4">
+            <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Corridor Congestion Trend</span>
+            <div class="text-lg font-bold text-emerald-400 mt-1">Outer Ring Road: Clearing</div>
+            <div class="text-xs text-slate-400 mt-0.5">Speed improving by +6.8 km/h post morning peak</div>
+          </div>
+          <div class="rounded-xl bg-slate-900/80 border border-slate-800 p-4">
+            <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">AI Signal Retiming Recommendation</span>
+            <div class="text-lg font-bold text-amber-400 mt-1">+18s Green split at ITO Junction</div>
+            <div class="text-xs text-slate-400 mt-0.5">Estimated queuing queue reduction: 22%</div>
+          </div>
+        </div>
+
+        <!-- Charts Row 1: Line Chart & Bar Chart -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          <!-- Line Chart: Average Speeds by Corridor (7 cols) -->
+          <div class="lg:col-span-7 rounded-xl bg-slate-900/80 border border-slate-800 p-4 shadow-lg flex flex-col">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
+              <div>
+                <h3 class="text-xs font-semibold text-white uppercase tracking-wider">Corridor Average Speeds (Past 12 Hours)</h3>
+                <p class="text-[11px] text-slate-400">Continuous telemetry aggregated from ANPR trip reconstruction</p>
+              </div>
+              <div class="flex items-center gap-2 text-xs">
+                <span class="px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 text-[10px] font-mono">Km/h</span>
+              </div>
+            </div>
+            <div class="relative w-full h-[280px]">
+              <canvas id="speedTrendChart" height="350" style="display: block; box-sizing: border-box; height: 280px; width: 532.1px;" width="665"></canvas>
+            </div>
+          </div>
+
+          <!-- Bar Chart: Congestion Comparison (5 cols) -->
+          <div class="lg:col-span-5 rounded-xl bg-slate-900/80 border border-slate-800 p-4 shadow-lg flex flex-col">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
+              <div>
+                <h3 class="text-xs font-semibold text-white uppercase tracking-wider">Congestion Index by Corridor</h3>
+                <p class="text-[11px] text-slate-400">Current delay vs. free-flow baseline</p>
+              </div>
+              <span class="text-xs text-amber-400 font-mono">Threshold: 70%</span>
+            </div>
+            <div class="relative w-full h-[280px]">
+              <canvas id="corridorCongestionChart" height="350" style="display: block; box-sizing: border-box; height: 280px; width: 364.7px;" width="455"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Row 2: Origin-Destination Matrix & Predictive Congestion Panel -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          <!-- Origin-Destination (O-D) Macro Flow Matrix (7 cols) -->
+          <div class="lg:col-span-7 rounded-xl bg-slate-900/80 border border-slate-800 p-4 shadow-lg flex flex-col">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
+              <div>
+                <h3 class="text-xs font-semibold text-white uppercase tracking-wider">City-Scale Origin-Destination (O-D) Flow Matrix</h3>
+                <p class="text-[11px] text-slate-400">Inter-zonal vehicle volumes synthesized from multi-camera trajectory pairs</p>
+              </div>
+              <span class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-cyan-300 font-mono">Unit: Trips/Hr</span>
+            </div>
+
+            <!-- O-D Table -->
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs font-mono">
+                <thead>
+                  <tr class="text-slate-400 border-b border-slate-800 text-[11px]">
+                    <th class="py-2 px-3">Origin \ Destination</th>
+                    <th class="py-2 px-2 text-center text-cyan-400">Central Hub</th>
+                    <th class="py-2 px-2 text-center text-cyan-400">North Ind.</th>
+                    <th class="py-2 px-2 text-center text-cyan-400">South Metro</th>
+                    <th class="py-2 px-2 text-center text-cyan-400">East Gateway</th>
+                    <th class="py-2 px-2 text-center text-cyan-400">West Tech</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800/60">
+                  <tr class="hover:bg-slate-800/30">
+                    <td class="py-2.5 px-3 font-semibold text-slate-300">Central Hub (Connaught)</td>
+                    <td class="py-2.5 px-2 text-center text-slate-600">—</td>
+                    <td class="py-2.5 px-2 text-center text-emerald-400 font-semibold bg-emerald-500/5">4,820</td>
+                    <td class="py-2.5 px-2 text-center text-rose-400 font-semibold bg-rose-500/10">11,940</td>
+                    <td class="py-2.5 px-2 text-center text-amber-400 font-semibold bg-amber-500/5">7,310</td>
+                    <td class="py-2.5 px-2 text-center text-emerald-400 font-semibold">5,200</td>
+                  </tr>
+                  <tr class="hover:bg-slate-800/30">
+                    <td class="py-2.5 px-3 font-semibold text-slate-300">North Ind. Zone</td>
+                    <td class="py-2.5 px-2 text-center text-amber-400 font-semibold">6,120</td>
+                    <td class="py-2.5 px-2 text-center text-slate-600">—</td>
+                    <td class="py-2.5 px-2 text-center text-slate-300">3,490</td>
+                    <td class="py-2.5 px-2 text-center text-emerald-400 font-semibold">5,910</td>
+                    <td class="py-2.5 px-2 text-center text-slate-300">2,880</td>
+                  </tr>
+                  <tr class="hover:bg-slate-800/30">
+                    <td class="py-2.5 px-3 font-semibold text-slate-300">South Metro (Cyber Park)</td>
+                    <td class="py-2.5 px-2 text-center text-rose-400 font-semibold bg-rose-500/10">14,200</td>
+                    <td class="py-2.5 px-2 text-center text-slate-300">3,980</td>
+                    <td class="py-2.5 px-2 text-center text-slate-600">—</td>
+                    <td class="py-2.5 px-2 text-center text-amber-400 font-semibold">8,450</td>
+                    <td class="py-2.5 px-2 text-center text-rose-400 font-semibold bg-rose-500/10">12,190</td>
+                  </tr>
+                  <tr class="hover:bg-slate-800/30">
+                    <td class="py-2.5 px-3 font-semibold text-slate-300">East Gateway Corridor</td>
+                    <td class="py-2.5 px-2 text-center text-amber-400 font-semibold">8,110</td>
+                    <td class="py-2.5 px-2 text-center text-slate-300">4,120</td>
+                    <td class="py-2.5 px-2 text-center text-amber-400 font-semibold">7,600</td>
+                    <td class="py-2.5 px-2 text-center text-slate-600">—</td>
+                    <td class="py-2.5 px-2 text-center text-slate-300">4,030</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="mt-3 text-[11px] text-slate-400 flex items-center justify-between pt-2 border-t border-slate-800">
+              <span class="">Identifies major commercial freight &amp; commuter corridors</span>
+              <span class="text-rose-400 font-semibold">Heavy load: Central ↔ South Corridor</span>
+            </div>
+          </div>
+
+          <!-- Predictive 2-Hour Forecast (5 cols) -->
+          <div class="lg:col-span-5 rounded-xl bg-slate-900/80 border border-slate-800 p-4 shadow-lg flex flex-col">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
+              <div>
+                <h3 class="text-xs font-semibold text-white uppercase tracking-wider">Next 2-Hour Predictive Forecast</h3>
+                <p class="text-[11px] text-slate-400">LSTM Time-Series Projection based on real-time vehicle inflow</p>
+              </div>
+              <span class="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded font-mono">ML v3.2</span>
+            </div>
+
+            <div class="space-y-3 flex-1">
+              <!-- Item 1 -->
+              <div class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 flex items-center justify-between">
+                <div>
+                  <div class="text-xs font-semibold text-white">Ring Road (Ashram Chowk)</div>
+                  <div class="text-[11px] text-slate-400">Current: 78% → Pred: 88%</div>
+                </div>
+                <div class="flex items-center gap-1.5 text-rose-400 font-bold text-xs bg-rose-500/10 px-2 py-1 rounded border border-rose-500/30">
+                  <span class="">WORSENING</span>
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"></path></svg>
+                </div>
+              </div>
+
+              <!-- Item 2 -->
+              <div class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 flex items-center justify-between">
+                <div>
+                  <div class="text-xs font-semibold text-white">NH-48 Mahipalpur Expressway</div>
+                  <div class="text-[11px] text-slate-400">Current: 62% → Pred: 49%</div>
+                </div>
+                <div class="flex items-center gap-1.5 text-emerald-400 font-bold text-xs bg-emerald-500/10 px-2 py-1 rounded border border-emerald-500/30">
+                  <span class="">CLEARING</span>
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg>
+                </div>
+              </div>
+
+              <!-- Item 3 -->
+              <div class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 flex items-center justify-between">
+                <div>
+                  <div class="text-xs font-semibold text-white">ITO - Vikas Marg Connector</div>
+                  <div class="text-[11px] text-slate-400">Current: 84% → Pred: 83%</div>
+                </div>
+                <div class="flex items-center gap-1.5 text-amber-400 font-bold text-xs bg-amber-500/10 px-2 py-1 rounded border border-amber-500/30">
+                  <span class="">STEADY HIGH</span>
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14"></path></svg>
+                </div>
+              </div>
+
+              <!-- Item 4 -->
+              <div class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 flex items-center justify-between">
+                <div>
+                  <div class="text-xs font-semibold text-white">Barapullah Elevated Corridor</div>
+                  <div class="text-[11px] text-slate-400">Current: 41% → Pred: 55%</div>
+                </div>
+                <div class="flex items-center gap-1.5 text-amber-300 font-bold text-xs bg-amber-500/10 px-2 py-1 rounded border border-amber-500/30">
+                  <span class="">SURGING</span>
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"></path></svg>
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-3 pt-2 border-t border-slate-800 text-[11px] text-slate-500">
+              Confidence score: 91.8% based on historical Monday patterns
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================================================== -->
+      <!-- TAB 4: WATCHLIST & REAL-TIME ALERTS                     -->
+      <!-- ======================================================== -->
+      <section id="view-alerts" class="view-tab flex flex-col gap-5 hidden">
+        <!-- Live Alert Trigger Showcase -->
+        <div class="rounded-xl bg-gradient-to-r from-rose-950/40 via-slate-900/90 to-slate-900 border border-rose-500/40 p-5 shadow-xl">
+          <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div class="flex items-center gap-3.5">
+              <div class="p-3 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30 status-pulse">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+              </div>
+              <div>
+                <div class="flex items-center gap-2">
+                  <h2 class="text-base font-bold text-white">Automated Wanted Vehicle Intercept System</h2>
+                  <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-rose-500 text-white font-bold animate-pulse">PRIORITY 1</span>
+                </div>
+                <p class="text-xs text-slate-300 mt-0.5">Real-time cross-referencing against National Stolen Vehicle Registry &amp; Court Summons</p>
+              </div>
+            </div>
+
+            <!-- Manual Test Trigger Button for Judges -->
+            <button onclick="triggerSimulatedAlert()" class="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold tracking-wider uppercase transition shadow-lg shadow-rose-950/60 flex items-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+              Simulate Instant Alert Event
+            </button>
+          </div>
+        </div>
+
+        <!-- Alerts Split View: Live Triggered Intercept Cards & Watchlist Database -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          <!-- Active Intercept Feed (5 cols) -->
+          <div class="lg:col-span-5 flex flex-col rounded-xl bg-slate-900/80 border border-slate-800 overflow-hidden shadow-lg">
+            <div class="px-4 py-3 border-b border-slate-800 bg-slate-950/60 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-rose-500 status-pulse"></span>
+                <h3 class="text-xs font-semibold text-white uppercase tracking-wider">Live Sighting Intercepts</h3>
+              </div>
+              <span id="active-intercept-count" class="text-xs font-mono text-rose-400 bg-rose-950/60 px-2 py-0.5 rounded border border-rose-800">2 Active</span>
+            </div>
+
+            <!-- Live Triggered Notification Cards Container -->
+            <div id="alerts-live-container" class="flex-1 p-4 overflow-y-auto space-y-3 max-h-[560px]"><div id="alert-auto-1789659431568" class="p-3.5 rounded-xl bg-rose-950/60 border border-rose-500 shadow-2xl relative animate-bounce">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-rose-500 status-pulse"></span>
+            <span class="font-mono font-bold text-rose-300 text-xs">DL 01 AX 9942</span>
+            <span class="text-[10px] bg-rose-600 text-white px-1.5 py-0.2 rounded font-bold">REAL-TIME HIT</span>
+          </div>
+          <span class="text-[10px] font-mono text-rose-300">Just Now</span>
+        </div>
+        <div class="mt-2 text-xs text-slate-200">
+          <div class="">Node: <b class="text-white">CAM-119 (NH-48 Cyber City Toll Plaza)</b></div>
+          <div class="text-rose-200 text-[11px] mt-0.5 font-semibold">Active Wanted Match: Speed 44 km/h Heading South</div>
+        </div>
+        <div class="mt-3 flex items-center justify-between pt-2 border-t border-rose-800">
+          <button onclick="quickInvestigatePlate('DL 01 AX 9942')" class="text-[11px] text-cyan-300 hover:text-white font-bold flex items-center gap-1">
+            Track Target Path →
+          </button>
+          <button onclick="dismissAlertCard('alert-auto-1789659431568')" class="text-[11px] text-slate-300 hover:text-white px-2 py-0.5 rounded bg-slate-800">
+            Acknowledge
+          </button>
+        </div>
+      </div>
+        <!-- Card 1 -->
+        <div id="alert-card-1" class="p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/50 shadow-lg relative">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-rose-500 status-pulse"></span>
+              <span class="font-mono font-bold text-rose-400 text-xs">DL 01 AX 9942</span>
+              <span class="text-[10px] bg-rose-500 text-white px-1.5 py-0.2 rounded font-bold">WANTED</span>
+            </div>
+            <span class="text-[10px] font-mono text-slate-400">1m 14s ago</span>
+          </div>
+          <div class="mt-2 text-xs text-slate-300">
+            <div class="">Node: <b class="text-white">CAM-042 (Barapullah West)</b></div>
+            <div class="text-slate-400 text-[11px] mt-0.5">Reason: Armed Robbery Getaway Vehicle · FIR #402/26</div>
+          </div>
+          <div class="mt-3 flex items-center justify-between pt-2 border-t border-rose-900/50">
+            <button onclick="quickInvestigatePlate('DL 01 AX 9942')" class="text-[11px] text-cyan-400 hover:text-cyan-300 font-semibold flex items-center gap-1">
+              Plot Trajectory →
+            </button>
+            <button onclick="dismissAlertCard('alert-card-1')" class="text-[11px] text-slate-400 hover:text-white px-2 py-0.5 rounded bg-slate-800">
+              Acknowledge
+            </button>
+          </div>
+        </div>
+
+        <!-- Card 2 -->
+        <div id="alert-card-2" class="p-3.5 rounded-xl bg-amber-950/30 border border-amber-500/40 shadow-lg relative">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+              <span class="font-mono font-bold text-amber-300 text-xs">UP 16 Z 7733</span>
+              <span class="text-[10px] bg-amber-500/30 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded font-bold">SUSPECT</span>
+            </div>
+            <span class="text-[10px] font-mono text-slate-400">6m ago</span>
+          </div>
+          <div class="mt-2 text-xs text-slate-300">
+            <div class="">Node: <b class="text-white">CAM-104 (Ashram Chowk)</b></div>
+            <div class="text-slate-400 text-[11px] mt-0.5">Reason: Expired Commercial Permit &amp; Hit-and-Run Summons</div>
+          </div>
+          <div class="mt-3 flex items-center justify-between pt-2 border-t border-amber-900/40">
+            <button onclick="quickInvestigatePlate('UP 16 Z 7733')" class="text-[11px] text-cyan-400 hover:text-cyan-300 font-semibold flex items-center gap-1">
+              Plot Trajectory →
+            </button>
+            <button onclick="dismissAlertCard('alert-card-2')" class="text-[11px] text-slate-400 hover:text-white px-2 py-0.5 rounded bg-slate-800">
+              Acknowledge
+            </button>
+          </div>
+        </div>
+      </div>
+          </div>
+
+          <!-- Watchlist Master Registry (7 cols) -->
+          <div class="lg:col-span-7 flex flex-col rounded-xl bg-slate-900/80 border border-slate-800 overflow-hidden shadow-lg">
+            <div class="px-4 py-3 border-b border-slate-800 bg-slate-950/60 flex items-center justify-between">
+              <div>
+                <h3 class="text-xs font-semibold text-white uppercase tracking-wider">Active Watchlist Registry</h3>
+                <p class="text-[11px] text-slate-400">Target plates configured for autonomous edge alert trigger</p>
+              </div>
+              <button onclick="openAddWatchlistModal()" class="text-xs bg-cyan-600 hover:bg-cyan-500 text-white font-medium px-3 py-1.5 rounded transition flex items-center gap-1">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                Add Plate
+              </button>
+            </div>
+
+            <!-- Watchlist Table -->
+            <div class="flex-1 overflow-x-auto">
+              <table class="w-full text-left text-xs">
+                <thead>
+                  <tr class="text-slate-400 border-b border-slate-800 bg-slate-950/40 text-[11px] uppercase tracking-wider">
+                    <th class="py-2.5 px-3.5">Registration</th>
+                    <th class="py-2.5 px-3">Violation Category</th>
+                    <th class="py-2.5 px-3">Date Added</th>
+                    <th class="py-2.5 px-3">Status</th>
+                    <th class="py-2.5 px-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="watchlist-table-body" class="divide-y divide-slate-800/60 font-mono"><tr class="hover:bg-slate-800/40 transition text-xs">
+          <td class="py-3 px-3.5 font-bold text-white tracking-wider flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+            DL 01 AX 9942
+          </td>
+          <td class="py-3 px-3 text-slate-300 font-sans">Stolen / Crime Scene Getaway</td>
+          <td class="py-3 px-3 text-slate-400">2026-03-28</td>
+          <td class="py-3 px-3">
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/40">ACTIVE HUNT</span>
+          </td>
+          <td class="py-3 px-3 text-right">
+            <button onclick="deleteWatchlistEntry(0)" class="text-slate-500 hover:text-rose-400 transition">
+              <svg class="w-4 h-4 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+            </button>
+          </td>
+        </tr><tr class="hover:bg-slate-800/40 transition text-xs">
+          <td class="py-3 px-3.5 font-bold text-white tracking-wider flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+            HR 26 DQ 1098
+          </td>
+          <td class="py-3 px-3 text-slate-300 font-sans">Court Impound Warrant</td>
+          <td class="py-3 px-3 text-slate-400">2026-03-25</td>
+          <td class="py-3 px-3">
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">FLAGGED</span>
+          </td>
+          <td class="py-3 px-3 text-right">
+            <button onclick="deleteWatchlistEntry(1)" class="text-slate-500 hover:text-rose-400 transition">
+              <svg class="w-4 h-4 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+            </button>
+          </td>
+        </tr><tr class="hover:bg-slate-800/40 transition text-xs">
+          <td class="py-3 px-3.5 font-bold text-white tracking-wider flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+            UP 16 Z 7733
+          </td>
+          <td class="py-3 px-3 text-slate-300 font-sans">Repeated Red Light Hit &amp; Run</td>
+          <td class="py-3 px-3 text-slate-400">2026-03-29</td>
+          <td class="py-3 px-3">
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/40">ACTIVE HUNT</span>
+          </td>
+          <td class="py-3 px-3 text-right">
+            <button onclick="deleteWatchlistEntry(2)" class="text-slate-500 hover:text-rose-400 transition">
+              <svg class="w-4 h-4 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+            </button>
+          </td>
+        </tr><tr class="hover:bg-slate-800/40 transition text-xs">
+          <td class="py-3 px-3.5 font-bold text-white tracking-wider flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+            TN 07 AB 4521
+          </td>
+          <td class="py-3 px-3 text-slate-300 font-sans">Suspended Commercial Permit</td>
+          <td class="py-3 px-3 text-slate-400">2026-03-20</td>
+          <td class="py-3 px-3">
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">SURVEILLANCE</span>
+          </td>
+          <td class="py-3 px-3 text-right">
+            <button onclick="deleteWatchlistEntry(3)" class="text-slate-500 hover:text-rose-400 transition">
+              <svg class="w-4 h-4 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+            </button>
+          </td>
+        </tr><tr class="hover:bg-slate-800/40 transition text-xs">
+          <td class="py-3 px-3.5 font-bold text-white tracking-wider flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+            MH 02 CK 8820
+          </td>
+          <td class="py-3 px-3 text-slate-300 font-sans">Fake Number Plate Suspect</td>
+          <td class="py-3 px-3 text-slate-400">2026-03-29</td>
+          <td class="py-3 px-3">
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/40">ACTIVE HUNT</span>
+          </td>
+          <td class="py-3 px-3 text-right">
+            <button onclick="deleteWatchlistEntry(4)" class="text-slate-500 hover:text-rose-400 transition">
+              <svg class="w-4 h-4 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+            </button>
+          </td>
+        </tr></tbody>
+              </table>
+            </div>
+
+            <div class="px-4 py-2.5 border-t border-slate-800 bg-slate-950/60 text-xs text-slate-400 flex items-center justify-between">
+              <span class="">Database synced with NCR Police Control Bureau</span>
+              <span class="text-emerald-400 font-mono">Status: Hot-Sync Active</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ======================================================== -->
+  <!-- MODAL: 5-Stage Engineering Pipeline Explanation          -->
+  <!-- ======================================================== -->
+  <div id="pipeline-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-2xl w-full p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
+      <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+        <div class="flex items-center gap-3">
+          <div class="p-2 rounded-lg bg-cyan-500/20 text-cyan-400">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+          </div>
+          <div><h3 class="text-base font-bold text-white">Core Architecture</h3><p class="text-xs text-slate-400">Autonomous Trajectory &amp; Traffic Surveillance Engine</p></div>
+        </div>
+        <button onclick="togglePipelineModal()" class="text-slate-400 hover:text-white p-1 rounded-lg bg-slate-800">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+      </div>
+
+      <div class="mt-5 space-y-4 text-xs">
+        <p class="text-slate-300 leading-relaxed">Traditional city ANPR cameras operate as disconnected islands. This system solves this by operating a 5-stage real-time intelligence pipeline:</p>
+
+        <!-- Stage 1 -->
+        <div class="p-3 rounded-lg bg-slate-950/70 border border-slate-800">
+          <div class="flex items-center gap-2 text-cyan-400 font-bold mb-1">
+            <span class="w-5 h-5 rounded-full bg-cyan-500/20 flex items-center justify-center text-[10px]">1</span>
+            Edge Detection &amp; Optical Character Recognition (OCR)
+          </div>
+          <p class="text-slate-400 text-[11px] pl-7">
+            YOLOv8-Nano plate detection + CRNN/Transformer OCR running at edge nodes with super-resolution filtering to achieve &gt;90% precision in poor illumination, high angles, and dirt.
+          </p>
+        </div>
+
+        <!-- Stage 2 -->
+        <div class="p-3 rounded-lg bg-slate-950/70 border border-slate-800">
+          <div class="flex items-center gap-2 text-blue-400 font-bold mb-1">
+            <span class="w-5 h-5 rounded-full bg-blue-500/20 flex items-center justify-center text-[10px]">2</span>
+            High-Throughput Ingestion Queue (Kafka / MQTT)
+          </div>
+          <p class="text-slate-400 text-[11px] pl-7">
+            Camera nodes stream structured JSON telemetry payloads: camera ID, GPS, millisecond timestamp, OCR plate string, and feature embedding vector with sub-50ms latency.
+          </p>
+        </div>
+
+        <!-- Stage 3 -->
+        <div class="p-3 rounded-lg bg-slate-950/70 border border-slate-800">
+          <div class="flex items-center gap-2 text-indigo-400 font-bold mb-1">
+            <span class="w-5 h-5 rounded-full bg-indigo-500/20 flex items-center justify-center text-[10px]">3</span>
+            Plate Normalization &amp; Fuzzy Deduplication
+          </div>
+          <p class="text-slate-400 text-[11px] pl-7">
+            State code parsing (e.g. TN, DL, MH) and Levenshtein distance matching resolve common OCR optical swaps (e.g. '8' vs 'B', '0' vs 'O') across varying lighting.
+          </p>
+        </div>
+
+        <!-- Stage 4 -->
+        <div class="p-3 rounded-lg bg-slate-950/70 border border-slate-800">
+          <div class="flex items-center gap-2 text-purple-400 font-bold mb-1">
+            <span class="w-5 h-5 rounded-full bg-purple-500/20 flex items-center justify-center text-[10px]">4</span>
+            Spatio-Temporal Trajectory Reconstruction Engine
+          </div>
+          <p class="text-slate-400 text-[11px] pl-7">
+            Chaining algorithm links sightings sequentially, filters geographically impossible teleportation speeds, calculates inter-camera segment speeds, and constructs continuous GIS polylines.
+          </p>
+        </div>
+
+        <!-- Stage 5 -->
+        <div class="p-3 rounded-lg bg-slate-950/70 border border-slate-800">
+          <div class="flex items-center gap-2 text-emerald-400 font-bold mb-1">
+            <span class="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center text-[10px]">5</span>
+            Macro Urban Analytics &amp; Watchlist Alert Daemon
+          </div>
+          <p class="text-slate-400 text-[11px] pl-7">
+            Aggregates vehicle trajectories into corridor travel times, O-D density matrices, and bottleneck forecasts while continuously matching active police hotlists.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-6 pt-3 border-t border-slate-800 flex justify-end">
+        <button onclick="togglePipelineModal()" class="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs">Close Architecture Spec</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- JavaScript Application Logic -->
+  <script>
+    /* =========================================================================
+       TRAJEXA JAVASCRIPT CONTROLLER (MOCK DATA GENERATION & ENGINE)
+       ========================================================================= */
+
+    // Camera Node Geo-Locations (Delhi NCR coordinates for high realism)
+    let CAMERA_NODES = [
+      { id: 'CAM-012', name: 'ITO Junction North Bound', lat: 28.6289, lng: 77.2405, status: 'Normal', reads: 1420 },
+      { id: 'CAM-029', name: 'Connaught Place Outer Circle', lat: 28.6315, lng: 77.2167, status: 'Normal', reads: 2890 },
+      { id: 'CAM-042', name: 'Barapullah Corridor West Ramp', lat: 28.5833, lng: 77.2417, status: 'Alert Event', reads: 1980 },
+      { id: 'CAM-067', name: 'Dhaula Kuan Interchange', lat: 28.5922, lng: 77.1617, status: 'High Density', reads: 3410 },
+      { id: 'CAM-088', name: 'AIIMS Flyover South Lane', lat: 28.5672, lng: 77.2100, status: 'High Density', reads: 3120 },
+      { id: 'CAM-104', name: 'Ashram Chowk Underpass', lat: 28.5714, lng: 77.2583, status: 'High Density', reads: 2790 },
+      { id: 'CAM-119', name: 'NH-48 Cyber City Toll Plaza', lat: 28.4986, lng: 77.0878, status: 'Normal', reads: 4210 },
+      { id: 'CAM-142', name: 'ISBT Kashmiri Gate Entry', lat: 28.6675, lng: 77.2281, status: 'Normal', reads: 1850 },
+      { id: 'CAM-155', name: 'Akshardham Setu East Bound', lat: 28.6127, lng: 77.2773, status: 'Normal', reads: 2430 },
+      { id: 'CAM-181', name: 'Karol Bagh Pusa Road Entry', lat: 28.6448, lng: 77.1888, status: 'Normal', reads: 1670 },
+      { id: 'CAM-203', name: 'Delhi Airport Terminal 3 Approach', lat: 28.5562, lng: 77.0999, status: 'Normal', reads: 3820 },
+      { id: 'CAM-224', name: 'Noida Link Road Chilla Border', lat: 28.6019, lng: 77.3072, status: 'Normal', reads: 3290 }
+    ];
+
+    // Watchlist Data Store
+    let WATCHLIST = [
+      { plate: 'DL 01 AX 9942', reason: 'Stolen / Crime Scene Getaway', added: '2026-03-28', status: 'ACTIVE HUNT', priority: 'HIGH' },
+      { plate: 'HR 26 DQ 1098', reason: 'Court Impound Warrant', added: '2026-03-25', status: 'FLAGGED', priority: 'MED' },
+      { plate: 'UP 16 Z 7733', reason: 'Repeated Red Light Hit & Run', added: '2026-03-29', status: 'ACTIVE HUNT', priority: 'HIGH' },
+      { plate: 'TN 07 AB 4521', reason: 'Suspended Commercial Permit', added: '2026-03-20', status: 'SURVEILLANCE', priority: 'LOW' },
+      { plate: 'MH 02 CK 8820', reason: 'Fake Number Plate Suspect', added: '2026-03-29', status: 'ACTIVE HUNT', priority: 'HIGH' }
+    ];
+
+    // Trajectory Presets
+    let TRAJECTORY_PRESETS = {
+      'DL 01 AX 9942': {
+        plate: 'DL 01 AX 9942',
+        type: 'Wanted / Red-Flagged Target',
+        dist: '16.8 km',
+        duration: '38 mins',
+        speed: '26.5 km/h',
+        nodes: [
+          { cam: 'CAM-029', name: 'Connaught Place Outer Circle', time: '08:14:12 IST', dir: 'Southbound', speed: '32 km/h', conf: '98.2%', lat: 28.6315, lng: 77.2167, delta: 'Origin' },
+          { cam: 'CAM-012', name: 'ITO Junction North Bound', time: '08:23:45 IST', dir: 'East-South Ramp', speed: '24 km/h', conf: '96.8%', lat: 28.6289, lng: 77.2405, delta: '+9m 33s' },
+          { cam: 'CAM-042', name: 'Barapullah Corridor West Ramp', time: '08:35:10 IST', dir: 'Elevated South', speed: '48 km/h', conf: '97.4%', lat: 28.5833, lng: 77.2417, delta: '+11m 25s' },
+          { cam: 'CAM-088', name: 'AIIMS Flyover South Lane', time: '08:44:02 IST', dir: 'Ring Road West', speed: '18 km/h', conf: '94.1%', lat: 28.5672, lng: 77.2100, delta: '+8m 52s' },
+          { cam: 'CAM-067', name: 'Dhaula Kuan Interchange', time: '08:52:19 IST', dir: 'NH-48 Outflow', speed: '28 km/h', conf: '95.9%', lat: 28.5922, lng: 77.1617, delta: '+8m 17s' }
+        ]
+      },
+      'MH 12 QP 4410': {
+        plate: 'MH 12 QP 4410',
+        type: 'Regular Commuter Vehicle',
+        dist: '21.4 km',
+        duration: '42 mins',
+        speed: '30.5 km/h',
+        nodes: [
+          { cam: 'CAM-119', name: 'NH-48 Cyber City Toll Plaza', time: '07:45:00 IST', dir: 'North-Inbound', speed: '52 km/h', conf: '99.1%', lat: 28.4986, lng: 77.0878, delta: 'Origin' },
+          { cam: 'CAM-203', name: 'Delhi Airport T3 Approach', time: '07:54:12 IST', dir: 'Spur North', speed: '45 km/h', conf: '98.5%', lat: 28.5562, lng: 77.0999, delta: '+9m 12s' },
+          { cam: 'CAM-067', name: 'Dhaula Kuan Interchange', time: '08:12:40 IST', dir: 'Ridge Road', speed: '22 km/h', conf: '93.7%', lat: 28.5922, lng: 77.1617, delta: '+18m 28s' },
+          { cam: 'CAM-181', name: 'Karol Bagh Pusa Road Entry', time: '08:27:00 IST', dir: 'Central North', speed: '21 km/h', conf: '96.2%', lat: 28.6448, lng: 77.1888, delta: '+14m 20s' }
+        ]
+      },
+      'KA 05 MN 2189': {
+        plate: 'KA 05 MN 2189',
+        type: 'Interstate Commercial Carrier',
+        dist: '14.2 km',
+        duration: '31 mins',
+        speed: '27.4 km/h',
+        nodes: [
+          { cam: 'CAM-224', name: 'Noida Link Road Chilla Border', time: '09:05:10 IST', dir: 'Westbound', speed: '38 km/h', conf: '97.2%', lat: 28.6019, lng: 77.3072, delta: 'Origin' },
+          { cam: 'CAM-155', name: 'Akshardham Setu East Bound', time: '09:12:30 IST', dir: 'Yamuna Cross', speed: '42 km/h', conf: '98.8%', lat: 28.6127, lng: 77.2773, delta: '+7m 20s' },
+          { cam: 'CAM-104', name: 'Ashram Chowk Underpass', time: '09:24:50 IST', dir: 'Ring Road Inflow', speed: '16 km/h', conf: '91.5%', lat: 28.5714, lng: 77.2583, delta: '+12m 20s' },
+          { cam: 'CAM-042', name: 'Barapullah Corridor West Ramp', time: '09:36:12 IST', dir: 'Lajpat Exit', speed: '30 km/h', conf: '95.0%', lat: 28.5833, lng: 77.2417, delta: '+11m 22s' }
+        ]
+      }
+    };
+
+    // State Variables
+    let overviewMapInstance = null;
+    let trajectoryMapInstance = null;
+    let trajectoryPolyline = null;
+    let trajectoryMarkers = [];
+    let speedChartInstance = null;
+    let congestionChartInstance = null;
+    let isStreamPaused = false;
+    let streamInterval = null;
+    let vehiclesCount = 412890;
+    let simulatedAlertCount = 3;
+
+    // Initialize App
+    async function loadBackendData() {
+      try {
+        const [cfg, cams, wl, trajs] = await Promise.all([
+          fetch('/api/config').then(r => r.json()),
+          fetch('/api/cameras').then(r => r.json()),
+          fetch('/api/watchlist').then(r => r.json()),
+          fetch('/api/trajectories').then(r => r.json())
+        ]);
+        MAPTILER_API_KEY = cfg.mapTilerKey || '';
+        MAPTILER_STYLE = cfg.mapStyle || MAPTILER_STYLE;
+        MAP_CENTER = [cfg.center.lat, cfg.center.lng];
+        MAP_ZOOM = cfg.zoom;
+        AI_ENABLED = !!cfg.aiEnabled;
+        CAMERA_NODES = cams; WATCHLIST = wl; TRAJECTORY_PRESETS = trajs;
+      } catch (e) {
+        console.warn('Backend unreachable - running on embedded demo data.', e);
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', async () => {
+      await loadBackendData();
+      startLiveClock();
+      initOverviewMap();
+      renderWatchlistTable();
+      populateInitialLiveFeed();
+      initTrajectoryView();
+      initAnalyticsCharts();
+      startLiveFeedLoop();
+
+      // Trigger a guaranteed automatic alert at ~6 seconds for hackathon judge demonstration
+      setTimeout(() => {
+        triggerSimulatedAlert(true);
+      }, 5500);
+    });
+
+    /* =========================================================================
+       TAB NAVIGATION
+       ========================================================================= */
+    function switchTab(tabId) {
+      // Hide all tabs
+      document.querySelectorAll('.view-tab').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('.tab-btn').forEach(el => {
+        el.className = 'tab-btn w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 text-slate-400 hover:text-slate-100 hover:bg-slate-800/60 border border-transparent';
+      });
+
+      // Show selected tab
+      const targetView = document.getElementById(`view-${tabId}`);
+      if (targetView) {
+        targetView.classList.remove('hidden');
+      }
+
+      // Highlight active nav
+      const activeNav = document.getElementById(`nav-${tabId}`);
+      if (activeNav) {
+        activeNav.className = 'tab-btn w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 shadow-sm shadow-cyan-950';
+      }
+
+      // Leaflet map invalidateSize fix when unhidden
+      setTimeout(() => {
+        if (tabId === 'overview' && overviewMapInstance) {
+          overviewMapInstance.invalidateSize();
+        } else if (tabId === 'trajectory' && trajectoryMapInstance) {
+          trajectoryMapInstance.invalidateSize();
+        } else if (tabId === 'analytics') {
+          if (speedChartInstance) speedChartInstance.resize();
+          if (congestionChartInstance) congestionChartInstance.resize();
+        }
+      }, 150);
+    }
+
+    /* =========================================================================
+       LIVE CLOCK
+       ========================================================================= */
+    function startLiveClock() {
+      function update() {
+        const now = new Date();
+        const hrs = String(now.getHours()).padStart(2, '0');
+        const mins = String(now.getMinutes()).padStart(2, '0');
+        const secs = String(now.getSeconds()).padStart(2, '0');
+        document.getElementById('live-clock').innerText = `${hrs}:${mins}:${secs} IST`;
+        
+        const opts = { day: '2-digit', month: 'short', year: 'numeric' };
+        document.getElementById('live-date').innerText = now.toLocaleDateString('en-GB', opts);
+      }
+      update();
+      setInterval(update, 1000);
+    }
+
+    /* =========================================================================
+       MAP CONFIG - paste your MapTiler key below (https://cloud.maptiler.com/account/keys/)
+       Leave empty to fall back to free OpenStreetMap tiles (CSS-darkened).
+       ========================================================================= */
+    let MAPTILER_API_KEY = '';              // loaded from backend (.env -> /api/config)
+    let MAPTILER_STYLE   = 'streets-v2-dark'; // loaded from backend
+    let MAP_CENTER = [28.6080, 77.2090];
+    let MAP_ZOOM = 12;
+    let AI_ENABLED = false;
+
+    function addBaseMap(map) {
+      if (MAPTILER_API_KEY) {
+        return L.tileLayer(
+          'https://api.maptiler.com/maps/' + MAPTILER_STYLE + '/{z}/{x}/{y}.png?key=' + MAPTILER_API_KEY,
+          { maxZoom: 19, tileSize: 256,
+            attribution: '&copy; MapTiler &copy; OpenStreetMap contributors' }
+        ).addTo(map);
+      }
+      console.warn('No MapTiler key set - using OpenStreetMap fallback tiles.');
+      return L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        subdomains: 'abc', maxZoom: 19, className: 'dark-map-tiles'
+      }).addTo(map);
+    }
+
+    /* =========================================================================
+       OVERVIEW LEAFLET MAP
+       ========================================================================= */
+    function initOverviewMap() {
+      // Centered over Delhi Metropolitan Area
+      overviewMapInstance = L.map('overview-map', {
+        zoomControl: true,
+        attributionControl: false
+      }).setView(MAP_CENTER, MAP_ZOOM);
+
+      addBaseMap(overviewMapInstance);
+
+      // Plot Camera Pins
+      CAMERA_NODES.forEach(cam => {
+        const isAlert = cam.status === 'Alert Event';
+        const isHeavy = cam.status === 'High Density';
+        const color = isAlert ? '#f43f5e' : (isHeavy ? '#f59e0b' : '#00d2ff');
+
+        const markerHtml = `
+          <div style="background-color: ${color}; width: 14px; height: 14px; border-radius: 50%; border: 2px solid #ffffff; box-shadow: 0 0 10px ${color};"></div>
+        `;
+
+        const customIcon = L.divIcon({
+          className: 'custom-cam-icon',
+          html: markerHtml,
+          iconSize: [16, 16]
+        });
+
+        const popupContent = `
+          <div class="text-xs p-1">
+            <div class="font-bold text-cyan-400 font-mono flex items-center justify-between">
+              <span>${cam.id}</span>
+              <span class="text-[10px] px-1.5 py-0.2 rounded ${isAlert ? 'bg-rose-500/20 text-rose-400' : 'bg-slate-800 text-slate-300'}">${cam.status}</span>
+            </div>
+            <div class="font-semibold text-white mt-1">${cam.name}</div>
+            <div class="text-slate-400 text-[11px] mt-1">24h Plate Ingest: <b class="text-slate-200 font-mono">${cam.reads}</b></div>
+            <div class="text-slate-400 text-[10px]">Optical Sensor: 4K 60FPS Sony STARVIS</div>
+            <button onclick="inspectCameraNode('${cam.id}')" class="mt-2 w-full py-1 bg-cyan-600/80 hover:bg-cyan-500 text-white rounded text-[10px] font-semibold tracking-wide">Filter Corridor Feed</button>
+          </div>
+        `;
+
+        L.marker([cam.lat, cam.lng], { icon: customIcon })
+          .addTo(overviewMapInstance)
+          .bindPopup(popupContent);
+      });
+    }
+
+    function resetOverviewMap() {
+      if (overviewMapInstance) {
+        overviewMapInstance.setView(MAP_CENTER, MAP_ZOOM);
+      }
+    }
+
+    function inspectCameraNode(camId) {
+      showToast(`Sensor Filter Engaged: Showing telemetry stream for ${camId}`, 'info');
+    }
+
+    /* =========================================================================
+       STREAMING ANPR LIVE OCR INGESTION
+       ========================================================================= */
+    const FAKE_STATES = ['DL', 'HR', 'UP', 'TN', 'MH', 'KA', 'PB'];
+    const VEHICLE_TYPES = ['Sedan', 'SUV', 'Commercial Truck', 'Hatchback', 'Auto-Rickshaw', 'Interstate Bus'];
+
+    function generateRandomPlate() {
+      const state = FAKE_STATES[Math.floor(Math.random() * FAKE_STATES.length)];
+      const district = String(Math.floor(Math.random() * 20) + 1).padStart(2, '0');
+      const series = String.fromCharCode(65 + Math.floor(Math.random() * 26)) + String.fromCharCode(65 + Math.floor(Math.random() * 26));
+      const digits = String(Math.floor(Math.random() * 9000) + 1000);
+      return `${state} ${district} ${series} ${digits}`;
+    }
+
+    function createFeedItem(isAlertOverride = false) {
+      const isAlert = isAlertOverride || (Math.random() < 0.08);
+      const plate = isAlert ? 'DL 01 AX 9942' : generateRandomPlate();
+      const cam = CAMERA_NODES[Math.floor(Math.random() * CAMERA_NODES.length)];
+      const conf = (91 + Math.random() * 8.8).toFixed(1);
+      const vtype = VEHICLE_TYPES[Math.floor(Math.random() * VEHICLE_TYPES.length)];
+      const now = new Date();
+      const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+
+      const card = document.createElement('div');
+      card.className = `p-3 rounded-lg border transition-all duration-300 transform -translate-y-1 ${
+        isAlert
+          ? 'bg-rose-950/40 border-rose-500/60 shadow-lg shadow-rose-950/40 animate-pulse'
+          : 'bg-slate-950/70 border-slate-800 hover:border-slate-700'
+      }`;
+
+      card.innerHTML = `
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-xs font-extrabold px-2 py-0.5 rounded tracking-wider ${
+              isAlert ? 'bg-rose-600 text-white' : 'bg-slate-800 text-cyan-300 border border-slate-700'
+            }">${plate}</span>
+            <span class="text-[10px] font-mono text-slate-400">${vtype}</span>
+          </div>
+          <div class="flex items-center gap-1.5 font-mono text-[10px]">
+            <span class="text-slate-400">${timeStr}</span>
+            <span class="px-1.5 py-0.2 rounded font-bold ${
+              parseFloat(conf) > 95 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'
+            }">${conf}% conf</span>
+          </div>
+        </div>
+        <div class="mt-2 flex items-center justify-between text-[11px]">
+          <div class="text-slate-300 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full ${isAlert ? 'bg-rose-500' : 'bg-cyan-400'}"></span>
+            <span class="font-semibold">${cam.id}</span>
+            <span class="text-slate-500">·</span>
+            <span class="text-slate-400 truncate max-w-[180px]">${cam.name}</span>
+          </div>
+          <button onclick="quickInvestigatePlate('${plate}')" class="text-[10px] text-cyan-400 hover:text-cyan-200 underline font-mono">Trace</button>
+        </div>
+      `;
+
+      return { element: card, isAlert: isAlert, plate: plate };
+    }
+
+    function populateInitialLiveFeed() {
+      const feedContainer = document.getElementById('live-anpr-feed');
+      feedContainer.innerHTML = '';
+      for (let i = 0; i < 7; i++) {
+        const item = createFeedItem(i === 2);
+        feedContainer.appendChild(item.element);
+      }
+    }
+
+    function startLiveFeedLoop() {
+      streamInterval = setInterval(() => {
+        if (isStreamPaused) return;
+
+        const feedContainer = document.getElementById('live-anpr-feed');
+        const item = createFeedItem();
+        feedContainer.insertBefore(item.element, feedContainer.firstChild);
+
+        // Keep maximum 20 items in live memory
+        if (feedContainer.children.length > 20) {
+          feedContainer.removeChild(feedContainer.lastChild);
+        }
+
+        // Increment stats counter
+        vehiclesCount += 1;
+        document.getElementById('stat-vehicles-count').innerText = vehiclesCount.toLocaleString();
+
+        if (item.isAlert) {
+          showToast(`WATCHLIST TARGET CAPTURED: ${item.plate} at ${CAMERA_NODES[0].id}`, 'alert');
+        }
+      }, 3400);
+    }
+
+    function pauseStreamToggle() {
+      isStreamPaused = !isStreamPaused;
+      const btn = document.getElementById('btn-stream-toggle');
+      if (isStreamPaused) {
+        btn.innerText = 'Resume Feed';
+        btn.classList.add('text-amber-400', 'border-amber-500/40');
+      } else {
+        btn.innerText = 'Pause Feed';
+        btn.classList.remove('text-amber-400', 'border-amber-500/40');
+      }
+    }
+
+    function quickInvestigatePlate(plate) {
+      loadSamplePlate(plate);
+      switchTab('trajectory');
+    }
+
+    /* =========================================================================
+       TRAJECTORY GIS INVESTIGATION ENGINE
+       ========================================================================= */
+    function initTrajectoryView() {
+      trajectoryMapInstance = L.map('trajectory-map', {
+        zoomControl: true,
+        attributionControl: false
+      }).setView(MAP_CENTER, MAP_ZOOM);
+
+      addBaseMap(trajectoryMapInstance);
+
+      // Load initial default plate
+      loadSamplePlate('DL 01 AX 9942');
+    }
+
+    function loadSamplePlate(plateNum) {
+      document.getElementById('traj-plate-input').value = plateNum;
+      renderTrajectoryPath(plateNum);
+    }
+
+    function handleTrajectorySearch(e) {
+      e.preventDefault();
+      const plate = document.getElementById('traj-plate-input').value.trim().toUpperCase();
+      renderTrajectoryPath(plate);
+    }
+
+    function renderTrajectoryPath(plateNum) {
+      // Check if we have preset, else synthesize dynamic path for realism
+      let traj = TRAJECTORY_PRESETS[plateNum];
+      if (!traj) {
+        traj = synthesizeDynamicTrajectory(plateNum);
+      }
+
+      window.currentTraj = traj;
+      const briefBox = document.getElementById('ai-brief-output');
+      if (briefBox) briefBox.textContent = '';
+
+      // Update UI Header tags
+      document.getElementById('traj-map-tag').innerText = `Target: ${traj.plate}`;
+      document.getElementById('traj-stat-dist').innerText = traj.dist;
+      document.getElementById('traj-stat-duration').innerText = traj.duration;
+      document.getElementById('traj-stat-speed').innerText = traj.speed;
+      document.getElementById('traj-node-count').innerText = `${traj.nodes.length} Nodes Matched`;
+
+      // Clear previous map markers and polylines
+      if (trajectoryPolyline) {
+        trajectoryMapInstance.removeLayer(trajectoryPolyline);
+      }
+      trajectoryMarkers.forEach(m => trajectoryMapInstance.removeLayer(m));
+      trajectoryMarkers = [];
+
+      const latlngs = [];
+      const timelineContainer = document.getElementById('traj-timeline-list');
+      timelineContainer.innerHTML = '';
+
+      traj.nodes.forEach((node, index) => {
+        latlngs.push([node.lat, node.lng]);
+
+        // Custom Numbered Icon for Map
+        const isFirst = index === 0;
+        const isLast = index === traj.nodes.length - 1;
+        const pinBg = isLast ? '#f43f5e' : (isFirst ? '#10b981' : '#00d2ff');
+
+        const numberMarker = L.divIcon({
+          className: 'custom-cam-icon',
+          html: `<div style="background-color: ${pinBg}; color: #000; font-weight: 800; font-size: 11px; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #ffffff; box-shadow: 0 0 12px ${pinBg};">${index + 1}</div>`,
+          iconSize: [22, 22]
+        });
+
+        const m = L.marker([node.lat, node.lng], { icon: numberMarker })
+          .addTo(trajectoryMapInstance)
+          .bindPopup(`
+            <div class="text-xs p-1">
+              <div class="font-bold text-cyan-400 font-mono">Waypoint #${index + 1}: ${node.cam}</div>
+              <div class="font-semibold text-white mt-1">${node.name}</div>
+              <div class="text-slate-300 text-[11px] mt-1 font-mono">Timestamp: ${node.time}</div>
+              <div class="text-slate-400 text-[11px]">Speed: <b class="text-amber-400 font-mono">${node.speed}</b></div>
+            </div>
+          `);
+        trajectoryMarkers.push(m);
+
+        // Build Chronological Timeline Card
+        const item = document.createElement('div');
+        item.className = 'relative pl-6 pb-2 border-l-2 border-slate-700 last:border-transparent';
+        item.innerHTML = `
+          <!-- Timeline Indicator Node -->
+          <div class="absolute -left-[9px] top-0 w-4 h-4 rounded-full flex items-center justify-center font-mono text-[9px] font-bold text-black ${
+            isLast ? 'bg-rose-500 text-white' : (isFirst ? 'bg-emerald-400' : 'bg-cyan-400')
+          }">${index + 1}</div>
+
+          <div class="p-3 rounded-lg bg-slate-950/70 border border-slate-800 hover:border-slate-700 transition">
+            <div class="flex items-center justify-between">
+              <div class="font-mono text-xs font-bold text-cyan-300 flex items-center gap-1.5">
+                <span>${node.cam}</span>
+                <span class="text-[10px] text-slate-500">·</span>
+                <span class="text-slate-200">${node.name}</span>
+              </div>
+              <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">${node.delta}</span>
+            </div>
+
+            <div class="mt-2 grid grid-cols-3 gap-1 text-[11px] font-mono pt-1.5 border-t border-slate-800/80 text-slate-400">
+              <div>Time: <span class="text-slate-200">${node.time.split(' ')[0]}</span></div>
+              <div>Vector: <span class="text-slate-200">${node.dir}</span></div>
+              <div class="text-right">OCR: <span class="text-emerald-400">${node.conf}</span></div>
+            </div>
+          </div>
+        `;
+        timelineContainer.appendChild(item);
+      });
+
+      // Draw Animated Directional Polyline
+      trajectoryPolyline = L.polyline(latlngs, {
+        color: '#00d2ff',
+        weight: 4,
+        opacity: 0.85,
+        dashArray: '8, 8'
+      }).addTo(trajectoryMapInstance);
+
+      trajectoryMapInstance.fitBounds(trajectoryPolyline.getBounds(), { padding: [40, 40] });
+    }
+
+    function synthesizeDynamicTrajectory(plate) {
+      // If user inputs any arbitrary plate, generate an authentic multi-camera route
+      const shuffled = [...CAMERA_NODES].sort(() => 0.5 - Math.random()).slice(0, 4);
+      return {
+        plate: plate,
+        type: 'Query Reconstructed Vehicle',
+        dist: '12.4 km',
+        duration: '29 mins',
+        speed: '25.6 km/h',
+        nodes: shuffled.map((c, idx) => ({
+          cam: c.id,
+          name: c.name,
+          time: `09:${15 + idx * 7}:22 IST`,
+          dir: idx % 2 === 0 ? 'South-East' : 'Radial Inflow',
+          speed: `${22 + Math.floor(Math.random() * 20)} km/h`,
+          conf: `${(92 + Math.random() * 7).toFixed(1)}%`,
+          lat: c.lat,
+          lng: c.lng,
+          delta: idx === 0 ? 'Origin' : `+${idx * 7}m`
+        }))
+      };
+    }
+
+    async function generateAiBrief() {
+      const out = document.getElementById('ai-brief-output');
+      const btn = document.getElementById('btn-ai-brief');
+      if (!window.currentTraj) return;
+      btn.disabled = true; out.textContent = 'Analyzing route...';
+      try {
+        const r = await fetch('/api/ai/brief', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ trajectory: window.currentTraj }) });
+        const d = await r.json();
+        out.textContent = r.ok ? d.brief : (d.error || 'AI brief failed.');
+      } catch (e) { out.textContent = 'Could not reach the backend.'; }
+      btn.disabled = false;
+    }
+
+    function simulateDispatchUnit() {
+      showToast('POLICE PATROL ALERT DISPATCHED: Intercept vector sent to PCR Unit 14 near Dhaula Kuan', 'alert');
+    }
+
+    /* =========================================================================
+       TRAFFIC ANALYTICS CHARTS (CHART.JS)
+       ========================================================================= */
+    function initAnalyticsCharts() {
+      // 1. Line Chart: Average Speeds by Corridor
+      const speedCtx = document.getElementById('speedTrendChart').getContext('2d');
+      speedChartInstance = new Chart(speedCtx, {
+        type: 'line',
+        data: {
+          labels: ['06:00', '07:00', '08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'],
+          datasets: [
+            {
+              label: 'Inner Ring Road',
+              data: [46, 38, 18, 14, 21, 26, 32, 34, 31, 28, 19, 15],
+              borderColor: '#f43f5e',
+              backgroundColor: 'rgba(244, 63, 94, 0.1)',
+              tension: 0.35,
+              borderWidth: 2.5,
+              pointRadius: 3
+            },
+            {
+              label: 'NH-48 Cyber Corridor',
+              data: [62, 54, 36, 22, 28, 41, 48, 50, 45, 38, 26, 21],
+              borderColor: '#00d2ff',
+              backgroundColor: 'rgba(0, 210, 255, 0.08)',
+              tension: 0.35,
+              borderWidth: 2.5,
+              pointRadius: 3
+            },
+            {
+              label: 'Barapullah Elevated',
+              data: [68, 62, 45, 38, 44, 52, 58, 60, 56, 49, 41, 35],
+              borderColor: '#10b981',
+              backgroundColor: 'transparent',
+              tension: 0.35,
+              borderWidth: 2,
+              borderDash: [5, 5],
+              pointRadius: 2
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              labels: { color: '#94a3b8', font: { family: 'Inter', size: 11 } }
+            }
+          },
+          scales: {
+            x: {
+              grid: { color: 'rgba(51, 65, 85, 0.25)' },
+              ticks: { color: '#94a3b8', font: { family: 'JetBrains Mono', size: 10 } }
+            },
+            y: {
+              grid: { color: 'rgba(51, 65, 85, 0.25)' },
+              ticks: { color: '#94a3b8', font: { family: 'JetBrains Mono', size: 10 } },
+              title: { display: true, text: 'Avg Speed (km/h)', color: '#64748b', font: { size: 10 } }
+            }
+          }
+        }
+      });
+
+      // 2. Bar Chart: Congestion Index Comparison
+      const congestionCtx = document.getElementById('corridorCongestionChart').getContext('2d');
+      congestionChartInstance = new Chart(congestionCtx, {
+        type: 'bar',
+        data: {
+          labels: ['Ring Rd (ITO)', 'Dhaula Kuan', 'AIIMS Flyover', 'Ashram Chowk', 'NH-48 Toll', 'Kashmiri Gate'],
+          datasets: [{
+            label: 'Congestion Index %',
+            data: [86, 78, 89, 74, 48, 62],
+            backgroundColor: [
+              'rgba(244, 63, 94, 0.75)',
+              'rgba(245, 158, 11, 0.75)',
+              'rgba(244, 63, 94, 0.85)',
+              'rgba(245, 158, 11, 0.75)',
+              'rgba(16, 185, 129, 0.75)',
+              'rgba(0, 210, 255, 0.75)'
+            ],
+            borderColor: '#0f172a',
+            borderWidth: 1.5,
+            borderRadius: 6
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: { color: '#94a3b8', font: { size: 10 } }
+            },
+            y: {
+              min: 0,
+              max: 100,
+              grid: { color: 'rgba(51, 65, 85, 0.25)' },
+              ticks: {
+                color: '#94a3b8',
+                callback: (v) => `${v}%`,
+                font: { family: 'JetBrains Mono', size: 10 }
+              }
+            }
+          }
+        }
+      });
+    }
+
+    /* =========================================================================
+       WATCHLIST & ALERT SYSTEM
+       ========================================================================= */
+    function renderWatchlistTable() {
+      const tbody = document.getElementById('watchlist-table-body');
+      tbody.innerHTML = '';
+
+      WATCHLIST.forEach((item, index) => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-slate-800/40 transition text-xs';
+        tr.innerHTML = `
+          <td class="py-3 px-3.5 font-bold text-white tracking-wider flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full ${item.priority === 'HIGH' ? 'bg-rose-500' : 'bg-amber-400'}"></span>
+            ${item.plate}
+          </td>
+          <td class="py-3 px-3 text-slate-300 font-sans">${item.reason}</td>
+          <td class="py-3 px-3 text-slate-400">${item.added}</td>
+          <td class="py-3 px-3">
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold ${
+              item.status === 'ACTIVE HUNT'
+                ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
+                : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+            }">${item.status}</span>
+          </td>
+          <td class="py-3 px-3 text-right">
+            <button onclick="deleteWatchlistEntry(${index})" class="text-slate-500 hover:text-rose-400 transition">
+              <svg class="w-4 h-4 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+            </button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      // Populate initial triggered notification cards
+      renderLiveAlertCards();
+    }
+
+    function renderLiveAlertCards() {
+      const container = document.getElementById('alerts-live-container');
+      container.innerHTML = `
+        <!-- Card 1 -->
+        <div id="alert-card-1" class="p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/50 shadow-lg relative">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-rose-500 status-pulse"></span>
+              <span class="font-mono font-bold text-rose-400 text-xs">DL 01 AX 9942</span>
+              <span class="text-[10px] bg-rose-500 text-white px-1.5 py-0.2 rounded font-bold">WANTED</span>
+            </div>
+            <span class="text-[10px] font-mono text-slate-400">1m 14s ago</span>
+          </div>
+          <div class="mt-2 text-xs text-slate-300">
+            <div>Node: <b class="text-white">CAM-042 (Barapullah West)</b></div>
+            <div class="text-slate-400 text-[11px] mt-0.5">Reason: Armed Robbery Getaway Vehicle · FIR #402/26</div>
+          </div>
+          <div class="mt-3 flex items-center justify-between pt-2 border-t border-rose-900/50">
+            <button onclick="quickInvestigatePlate('DL 01 AX 9942')" class="text-[11px] text-cyan-400 hover:text-cyan-300 font-semibold flex items-center gap-1">
+              Plot Trajectory →
+            </button>
+            <button onclick="dismissAlertCard('alert-card-1')" class="text-[11px] text-slate-400 hover:text-white px-2 py-0.5 rounded bg-slate-800">
+              Acknowledge
+            </button>
+          </div>
+        </div>
+
+        <!-- Card 2 -->
+        <div id="alert-card-2" class="p-3.5 rounded-xl bg-amber-950/30 border border-amber-500/40 shadow-lg relative">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+              <span class="font-mono font-bold text-amber-300 text-xs">UP 16 Z 7733</span>
+              <span class="text-[10px] bg-amber-500/30 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded font-bold">SUSPECT</span>
+            </div>
+            <span class="text-[10px] font-mono text-slate-400">6m ago</span>
+          </div>
+          <div class="mt-2 text-xs text-slate-300">
+            <div>Node: <b class="text-white">CAM-104 (Ashram Chowk)</b></div>
+            <div class="text-slate-400 text-[11px] mt-0.5">Reason: Expired Commercial Permit & Hit-and-Run Summons</div>
+          </div>
+          <div class="mt-3 flex items-center justify-between pt-2 border-t border-amber-900/40">
+            <button onclick="quickInvestigatePlate('UP 16 Z 7733')" class="text-[11px] text-cyan-400 hover:text-cyan-300 font-semibold flex items-center gap-1">
+              Plot Trajectory →
+            </button>
+            <button onclick="dismissAlertCard('alert-card-2')" class="text-[11px] text-slate-400 hover:text-white px-2 py-0.5 rounded bg-slate-800">
+              Acknowledge
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    function dismissAlertCard(cardId) {
+      const el = document.getElementById(cardId);
+      if (el) {
+        el.style.opacity = '0';
+        el.style.transform = 'scale(0.95)';
+        setTimeout(() => el.remove(), 250);
+        showToast('Alert incident acknowledged by duty operator.', 'info');
+      }
+    }
+
+    function deleteWatchlistEntry(idx) {
+      const removed = WATCHLIST.splice(idx, 1)[0];
+      if (removed) fetch('/api/watchlist/' + encodeURIComponent(removed.plate), { method: 'DELETE' }).catch(() => {});
+      renderWatchlistTable();
+      showToast('Registration removed from surveillance watchlist.', 'info');
+    }
+
+    function triggerSimulatedAlert(isAuto = false) {
+      const randomCam = CAMERA_NODES[Math.floor(Math.random() * CAMERA_NODES.length)];
+      const targetPlate = 'DL 01 AX 9942';
+
+      // Insert new alert card at top
+      const container = document.getElementById('alerts-live-container');
+      const newCardId = `alert-auto-${Date.now()}`;
+      const card = document.createElement('div');
+      card.id = newCardId;
+      card.className = 'p-3.5 rounded-xl bg-rose-950/60 border border-rose-500 shadow-2xl relative animate-bounce';
+      card.innerHTML = `
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-rose-500 status-pulse"></span>
+            <span class="font-mono font-bold text-rose-300 text-xs">${targetPlate}</span>
+            <span class="text-[10px] bg-rose-600 text-white px-1.5 py-0.2 rounded font-bold">REAL-TIME HIT</span>
+          </div>
+          <span class="text-[10px] font-mono text-rose-300">Just Now</span>
+        </div>
+        <div class="mt-2 text-xs text-slate-200">
+          <div>Node: <b class="text-white">${randomCam.id} (${randomCam.name})</b></div>
+          <div class="text-rose-200 text-[11px] mt-0.5 font-semibold">Active Wanted Match: Speed 44 km/h Heading South</div>
+        </div>
+        <div class="mt-3 flex items-center justify-between pt-2 border-t border-rose-800">
+          <button onclick="quickInvestigatePlate('${targetPlate}')" class="text-[11px] text-cyan-300 hover:text-white font-bold flex items-center gap-1">
+            Track Target Path →
+          </button>
+          <button onclick="dismissAlertCard('${newCardId}')" class="text-[11px] text-slate-300 hover:text-white px-2 py-0.5 rounded bg-slate-800">
+            Acknowledge
+          </button>
+        </div>
+      `;
+
+      if (container) {
+        container.insertBefore(card, container.firstChild);
+      }
+
+      // Update badge counts
+      simulatedAlertCount += 1;
+      document.getElementById('stat-alerts-count').innerText = simulatedAlertCount;
+      document.getElementById('nav-alert-count').innerText = `${simulatedAlertCount} NEW`;
+
+      // Show top bar quick alert
+      const pill = document.getElementById('quick-alert-pill');
+      if (pill) {
+        pill.classList.remove('hidden');
+        document.getElementById('quick-alert-text').innerText = `CRITICAL ALERT: ${targetPlate} AT ${randomCam.id}`;
+      }
+
+      showToast(`🚨 CRITICAL HIT: Watchlisted Vehicle ${targetPlate} detected at ${randomCam.id}`, 'alert');
+    }
+
+    function openAddWatchlistModal() {
+      const plate = prompt("Enter Indian Registration Number to Watchlist (e.g. DL 03 CC 1234):");
+      if (plate) {
+        const reason = prompt("Enter Violation / Hotlist Reason:", "Stolen Vehicle Report");
+        WATCHLIST.unshift({
+          plate: plate.toUpperCase(),
+          reason: reason || "Investigation Flag",
+          added: "2026-03-30",
+          status: "ACTIVE HUNT",
+          priority: "HIGH"
+        });
+        fetch('/api/watchlist', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(WATCHLIST[0]) }).catch(() => {});
+        renderWatchlistTable();
+        showToast(`Registration ${plate.toUpperCase()} successfully staged to ANPR edge units.`, 'info');
+      }
+    }
+
+    /* =========================================================================
+       TOAST NOTIFICATIONS & MODALS
+       ========================================================================= */
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      
+      const isAlert = type === 'alert';
+      toast.className = `p-3.5 rounded-xl border shadow-2xl pointer-events-auto flex items-start gap-3 transition-all duration-300 transform translate-x-10 ${
+        isAlert
+          ? 'bg-rose-950/90 border-rose-500 text-rose-100 shadow-rose-950'
+          : 'bg-slate-900/90 border-cyan-500/40 text-slate-200 shadow-cyan-950'
+      }`;
+
+      toast.innerHTML = `
+        <div class="mt-0.5 p-1 rounded ${isAlert ? 'bg-rose-500 text-white' : 'bg-cyan-500/20 text-cyan-400'}">
+          ${
+            isAlert
+              ? '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>'
+              : '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>'
+          }
+        </div>
+        <div class="flex-1 text-xs font-medium">${message}</div>
+        <button onclick="this.parentElement.remove()" class="text-slate-400 hover:text-white text-xs">✕</button>
+      `;
+
+      container.appendChild(toast);
+
+      // Slide in animation
+      setTimeout(() => {
+        toast.classList.remove('translate-x-10');
+      }, 50);
+
+      // Auto dismiss after 5.5s
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-x-10');
+        setTimeout(() => toast.remove(), 300);
+      }, 5500);
+    }
+
+    function togglePipelineModal() {
+      const modal = document.getElementById('pipeline-modal');
+      modal.classList.toggle('hidden');
+    }
+  </script>
+
+
+
+
+</body></html>

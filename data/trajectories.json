@@ -1,0 +1,172 @@
+{
+  "DL 01 AX 9942": {
+    "plate": "DL 01 AX 9942",
+    "type": "Wanted / Red-Flagged Target",
+    "dist": "16.8 km",
+    "duration": "38 mins",
+    "speed": "26.5 km/h",
+    "nodes": [
+      {
+        "cam": "CAM-029",
+        "name": "Connaught Place Outer Circle",
+        "time": "08:14:12 IST",
+        "dir": "Southbound",
+        "speed": "32 km/h",
+        "conf": "98.2%",
+        "lat": 28.6315,
+        "lng": 77.2167,
+        "delta": "Origin"
+      },
+      {
+        "cam": "CAM-012",
+        "name": "ITO Junction North Bound",
+        "time": "08:23:45 IST",
+        "dir": "East-South Ramp",
+        "speed": "24 km/h",
+        "conf": "96.8%",
+        "lat": 28.6289,
+        "lng": 77.2405,
+        "delta": "+9m 33s"
+      },
+      {
+        "cam": "CAM-042",
+        "name": "Barapullah Corridor West Ramp",
+        "time": "08:35:10 IST",
+        "dir": "Elevated South",
+        "speed": "48 km/h",
+        "conf": "97.4%",
+        "lat": 28.5833,
+        "lng": 77.2417,
+        "delta": "+11m 25s"
+      },
+      {
+        "cam": "CAM-088",
+        "name": "AIIMS Flyover South Lane",
+        "time": "08:44:02 IST",
+        "dir": "Ring Road West",
+        "speed": "18 km/h",
+        "conf": "94.1%",
+        "lat": 28.5672,
+        "lng": 77.21,
+        "delta": "+8m 52s"
+      },
+      {
+        "cam": "CAM-067",
+        "name": "Dhaula Kuan Interchange",
+        "time": "08:52:19 IST",
+        "dir": "NH-48 Outflow",
+        "speed": "28 km/h",
+        "conf": "95.9%",
+        "lat": 28.5922,
+        "lng": 77.1617,
+        "delta": "+8m 17s"
+      }
+    ]
+  },
+  "MH 12 QP 4410": {
+    "plate": "MH 12 QP 4410",
+    "type": "Regular Commuter Vehicle",
+    "dist": "21.4 km",
+    "duration": "42 mins",
+    "speed": "30.5 km/h",
+    "nodes": [
+      {
+        "cam": "CAM-119",
+        "name": "NH-48 Cyber City Toll Plaza",
+        "time": "07:45:00 IST",
+        "dir": "North-Inbound",
+        "speed": "52 km/h",
+        "conf": "99.1%",
+        "lat": 28.4986,
+        "lng": 77.0878,
+        "delta": "Origin"
+      },
+      {
+        "cam": "CAM-203",
+        "name": "Delhi Airport T3 Approach",
+        "time": "07:54:12 IST",
+        "dir": "Spur North",
+        "speed": "45 km/h",
+        "conf": "98.5%",
+        "lat": 28.5562,
+        "lng": 77.0999,
+        "delta": "+9m 12s"
+      },
+      {
+        "cam": "CAM-067",
+        "name": "Dhaula Kuan Interchange",
+        "time": "08:12:40 IST",
+        "dir": "Ridge Road",
+        "speed": "22 km/h",
+        "conf": "93.7%",
+        "lat": 28.5922,
+        "lng": 77.1617,
+        "delta": "+18m 28s"
+      },
+      {
+        "cam": "CAM-181",
+        "name": "Karol Bagh Pusa Road Entry",
+        "time": "08:27:00 IST",
+        "dir": "Central North",
+        "speed": "21 km/h",
+        "conf": "96.2%",
+        "lat": 28.6448,
+        "lng": 77.1888,
+        "delta": "+14m 20s"
+      }
+    ]
+  },
+  "KA 05 MN 2189": {
+    "plate": "KA 05 MN 2189",
+    "type": "Interstate Commercial Carrier",
+    "dist": "14.2 km",
+    "duration": "31 mins",
+    "speed": "27.4 km/h",
+    "nodes": [
+      {
+        "cam": "CAM-224",
+        "name": "Noida Link Road Chilla Border",
+        "time": "09:05:10 IST",
+        "dir": "Westbound",
+        "speed": "38 km/h",
+        "conf": "97.2%",
+        "lat": 28.6019,
+        "lng": 77.3072,
+        "delta": "Origin"
+      },
+      {
+        "cam": "CAM-155",
+        "name": "Akshardham Setu East Bound",
+        "time": "09:12:30 IST",
+        "dir": "Yamuna Cross",
+        "speed": "42 km/h",
+        "conf": "98.8%",
+        "lat": 28.6127,
+        "lng": 77.2773,
+        "delta": "+7m 20s"
+      },
+      {
+        "cam": "CAM-104",
+        "name": "Ashram Chowk Underpass",
+        "time": "09:24:50 IST",
+        "dir": "Ring Road Inflow",
+        "speed": "16 km/h",
+        "conf": "91.5%",
+        "lat": 28.5714,
+        "lng": 77.2583,
+        "delta": "+12m 20s"
+      },
+      {
+        "cam": "CAM-042",
+        "name": "Barapullah Corridor West Ramp",
+        "time": "09:36:12 IST",
+        "dir": "Lajpat Exit",
+        "speed": "30 km/h",
+        "conf": "95.0%",
+        "lat": 28.5833,
+        "lng": 77.2417,
+        "delta": "+11m 22s"
+      }
+    ]
+  }
+}

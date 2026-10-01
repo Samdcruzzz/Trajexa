@@ -1,0 +1,37 @@
+[
+  {
+    "plate": "DL 01 AX 9942",
+    "reason": "Stolen / Crime Scene Getaway",
+    "added": "2026-03-28",
+    "status": "ACTIVE HUNT",
+    "priority": "HIGH"
+  },
+  {
+    "plate": "HR 26 DQ 1098",
+    "reason": "Court Impound Warrant",
+    "added": "2026-03-25",
+    "status": "FLAGGED",
+    "priority": "MED"
+  },
+  {
+    "plate": "UP 16 Z 7733",
+    "reason": "Repeated Red Light Hit & Run",
+    "added": "2026-03-29",
+    "status": "ACTIVE HUNT",
+    "priority": "HIGH"
+  },
+  {
+    "plate": "TN 07 AB 4521",
+    "reason": "Suspended Commercial Permit",
+    "added": "2026-03-20",
+    "status": "SURVEILLANCE",
+    "priority": "LOW"
+  },
+  {
+    "plate": "MH 02 CK 8820",
+    "reason": "Fake Number Plate Suspect",
+    "added": "2026-03-29",
+    "status": "ACTIVE HUNT",
+    "priority": "HIGH"
+  }
+]

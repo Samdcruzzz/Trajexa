@@ -1,0 +1,98 @@
+[
+  {
+    "id": "CAM-012",
+    "name": "ITO Junction North Bound",
+    "lat": 28.6289,
+    "lng": 77.2405,
+    "status": "Normal",
+    "reads": 1420
+  },
+  {
+    "id": "CAM-029",
+    "name": "Connaught Place Outer Circle",
+    "lat": 28.6315,
+    "lng": 77.2167,
+    "status": "Normal",
+    "reads": 2890
+  },
+  {
+    "id": "CAM-042",
+    "name": "Barapullah Corridor West Ramp",
+    "lat": 28.5833,
+    "lng": 77.2417,
+    "status": "Alert Event",
+    "reads": 1980
+  },
+  {
+    "id": "CAM-067",
+    "name": "Dhaula Kuan Interchange",
+    "lat": 28.5922,
+    "lng": 77.1617,
+    "status": "High Density",
+    "reads": 3410
+  },
+  {
+    "id": "CAM-088",
+    "name": "AIIMS Flyover South Lane",
+    "lat": 28.5672,
+    "lng": 77.21,
+    "status": "High Density",
+    "reads": 3120
+  },
+  {
+    "id": "CAM-104",
+    "name": "Ashram Chowk Underpass",
+    "lat": 28.5714,
+    "lng": 77.2583,
+    "status": "High Density",
+    "reads": 2790
+  },
+  {
+    "id": "CAM-119",
+    "name": "NH-48 Cyber City Toll Plaza",
+    "lat": 28.4986,
+    "lng": 77.0878,
+    "status": "Normal",
+    "reads": 4210
+  },
+  {
+    "id": "CAM-142",
+    "name": "ISBT Kashmiri Gate Entry",
+    "lat": 28.6675,
+    "lng": 77.2281,
+    "status": "Normal",
+    "reads": 1850
+  },
+  {
+    "id": "CAM-155",
+    "name": "Akshardham Setu East Bound",
+    "lat": 28.6127,
+    "lng": 77.2773,
+    "status": "Normal",
+    "reads": 2430
+  },
+  {
+    "id": "CAM-181",
+    "name": "Karol Bagh Pusa Road Entry",
+    "lat": 28.6448,
+    "lng": 77.1888,
+    "status": "Normal",
+    "reads": 1670
+  },
+  {
+    "id": "CAM-203",
+    "name": "Delhi Airport Terminal 3 Approach",
+    "lat": 28.5562,
+    "lng": 77.0999,
+    "status": "Normal",
+    "reads": 3820
+  },
+  {
+    "id": "CAM-224",
+    "name": "Noida Link Road Chilla Border",
+    "lat": 28.6019,
+    "lng": 77.3072,
+    "status": "Normal",
+    "reads": 3290
+  }
+]
