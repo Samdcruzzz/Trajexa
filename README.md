@@ -190,7 +190,7 @@ npm run dev               # starts Netlify Dev, serving the site and the functio
 
 ---
 
-## Team Nova Minds
+## Team Spotlight
 
 | Role | Member | GitHub |
 |---|---|---|
